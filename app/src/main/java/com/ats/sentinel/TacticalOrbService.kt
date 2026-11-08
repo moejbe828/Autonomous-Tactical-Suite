@@ -14,9 +14,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -28,7 +27,6 @@ import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.app.NotificationCompat
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -39,31 +37,25 @@ class TacticalOrbService : Service() {
         const val ACTION_STOP =
             "com.ats.sentinel.action.STOP_ORB"
 
-        private const val CHANNEL_ID = "ats_tactical_orb"
-        private const val NOTIFICATION_ID = 1001
+        private const val CHANNEL_ID = "ats_holo_grid"
+        private const val NOTIFICATION_ID = 1101
     }
 
     private lateinit var windowManager: WindowManager
 
     private var orbContainer: View? = null
-    private var radarView: RadarView? = null
+    private var holoView: HoloGridView? = null
 
-    private var initialX = 0
-    private var initialY = 0
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-
-    private var isOverlayAdded = false
+    private var added = false
 
     override fun onCreate() {
         super.onCreate()
 
         createNotificationChannel()
 
-        // Start foreground before creating the overlay.
         startForeground(
             NOTIFICATION_ID,
-            buildNotification()
+            createNotification()
         )
 
         windowManager =
@@ -92,43 +84,31 @@ class TacticalOrbService : Service() {
         ).toInt()
     }
 
-    // --------------------------------------------------
+    // -----------------------------------------------
     // NOTIFICATION
-    // --------------------------------------------------
+    // -----------------------------------------------
 
     private fun createNotificationChannel() {
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "ATS Tactical Sentinel",
+                "ATS Holographic Orb",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description =
-                    "Status notification for ATS Tactical Orb"
-                setShowBadge(false)
-            }
+            )
+
+            channel.description =
+                "ATS floating holographic interface"
+
+            channel.setShowBadge(false)
 
             getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(channel)
         }
     }
 
-    private fun buildNotification(): Notification {
-
-        val openIntent = Intent(
-            this,
-            MainActivity::class.java
-        )
-
-        val openPendingIntent =
-            PendingIntent.getActivity(
-                this,
-                10,
-                openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_IMMUTABLE
-            )
+    private fun createNotification(): Notification {
 
         val stopIntent = Intent(
             this,
@@ -140,36 +120,33 @@ class TacticalOrbService : Service() {
         val stopPendingIntent =
             PendingIntent.getService(
                 this,
-                11,
+                1102,
                 stopIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE
             )
 
-        return NotificationCompat.Builder(
-            this,
-            CHANNEL_ID
-        )
-            .setSmallIcon(
-                android.R.drawable.ic_dialog_info
-            )
-            .setContentTitle("ATS Tactical Sentinel")
-            .setContentText("Tactical Radar is active")
-            .setContentIntent(openPendingIntent)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "STOP",
-                stopPendingIntent
-            )
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        val builder =
+            Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(
+                    android.R.drawable.ic_dialog_info
+                )
+                .setContentTitle("ATS TACTICAL SENTINEL")
+                .setContentText("HOLO GRID is running")
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .addAction(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    "STOP",
+                    stopPendingIntent
+                )
+
+        return builder.build()
     }
 
-    // --------------------------------------------------
-    // OVERLAY WINDOW
-    // --------------------------------------------------
+    // -----------------------------------------------
+    // HOLOGRAPHIC OVERLAY
+    // -----------------------------------------------
 
     private fun showOrb() {
 
@@ -179,88 +156,97 @@ class TacticalOrbService : Service() {
             gravity = Gravity.CENTER
 
             setPadding(
-                dp(11),
-                dp(10),
-                dp(11),
-                dp(10)
+                dp(12),
+                dp(12),
+                dp(12),
+                dp(12)
             )
 
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(
-                    Color.rgb(2, 9, 5),
-                    Color.rgb(8, 25, 14),
-                    Color.rgb(1, 7, 4)
+                    Color.rgb(2, 8, 20),
+                    Color.rgb(4, 19, 42),
+                    Color.rgb(1, 5, 15)
                 )
             ).apply {
-                cornerRadius = dp(23).toFloat()
+
+                cornerRadius = dp(22).toFloat()
 
                 setStroke(
                     dp(1),
-                    Color.rgb(39, 220, 105)
+                    Color.rgb(0, 175, 255)
                 )
             }
         }
 
         val header = TextView(this).apply {
 
-            text = "ATS  //  TACTICAL SENTINEL"
+            text = "ATS // HOLO GRID"
+
+            textSize = 13f
+            gravity = Gravity.CENTER
+            letterSpacing = 0.12f
+
+            typeface = Typeface.DEFAULT_BOLD
 
             setTextColor(
-                Color.rgb(100, 255, 150)
+                Color.rgb(75, 210, 255)
             )
-
-            textSize = 12f
-            gravity = Gravity.CENTER
-            letterSpacing = 0.10f
-            typeface = Typeface.DEFAULT_BOLD
         }
 
-        val subHeader = TextView(this).apply {
+        val subtitle = TextView(this).apply {
 
-            text = "AUTONOMOUS RADAR SYSTEM"
-
-            setTextColor(
-                Color.rgb(65, 165, 95)
-            )
+            text = "HOLOGRAPHIC MONITORING CORE"
 
             textSize = 8f
             gravity = Gravity.CENTER
-            letterSpacing = 0.18f
+            letterSpacing = 0.15f
+
+            setTextColor(
+                Color.rgb(70, 145, 205)
+            )
         }
 
-        val radar = RadarView(this)
-        radarView = radar
+        val holo = HoloGridView(this)
+        holoView = holo
 
         val status = TextView(this).apply {
 
-            text = "● RADAR ONLINE  |  VISUAL MODE"
+            text = "● HOLO CORE ONLINE"
+
+            textSize = 10f
+            gravity = Gravity.CENTER
+            letterSpacing = 0.10f
 
             setTextColor(
-                Color.rgb(75, 235, 125)
+                Color.rgb(50, 195, 255)
             )
-
-            textSize = 9f
-            gravity = Gravity.CENTER
-            letterSpacing = 0.08f
         }
 
         val stopButton = TextView(this).apply {
 
             text = "■  STOP ORB"
 
-            setTextColor(Color.WHITE)
-            textSize = 11f
             gravity = Gravity.CENTER
-            letterSpacing = 0.14f
+            textSize = 11f
+            letterSpacing = 0.12f
+
             typeface = Typeface.DEFAULT_BOLD
 
+            setTextColor(Color.WHITE)
+
             background = GradientDrawable().apply {
-                setColor(Color.rgb(12, 40, 22))
+
+                setColor(
+                    Color.rgb(5, 35, 65)
+                )
+
                 cornerRadius = dp(10).toFloat()
+
                 setStroke(
                     dp(1),
-                    Color.rgb(45, 220, 105)
+                    Color.rgb(0, 160, 255)
                 )
             }
 
@@ -278,7 +264,7 @@ class TacticalOrbService : Service() {
         )
 
         container.addView(
-            subHeader,
+            subtitle,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(18)
@@ -286,10 +272,10 @@ class TacticalOrbService : Service() {
         )
 
         container.addView(
-            radar,
+            holo,
             LinearLayout.LayoutParams(
-                dp(205),
-                dp(205)
+                dp(210),
+                dp(210)
             )
         )
 
@@ -305,56 +291,49 @@ class TacticalOrbService : Service() {
             stopButton,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(34)
+                dp(35)
             )
         )
 
         val params = WindowManager.LayoutParams(
-            dp(235),
+            dp(240),
             dp(330),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-
             PixelFormat.TRANSLUCENT
         ).apply {
 
             gravity = Gravity.TOP or Gravity.START
 
-            x = dp(18)
+            x = dp(20)
             y = dp(130)
         }
 
-        // Drag from header and radar only.
-        // The STOP button remains independently clickable.
+        // Dragging without blocking STOP button.
 
         val dragListener =
-            View.OnTouchListener { view, event ->
+            View.OnTouchListener { _, event ->
 
                 when (event.action) {
 
                     MotionEvent.ACTION_DOWN -> {
+                        dragX = params.x
+                        dragY = params.y
 
-                        initialX = params.x
-                        initialY = params.y
-
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
+                        touchX = event.rawX
+                        touchY = event.rawY
 
                         true
                     }
 
                     MotionEvent.ACTION_MOVE -> {
 
-                        val deltaX =
-                            (event.rawX - initialTouchX).toInt()
+                        params.x = dragX +
+                            (event.rawX - touchX).toInt()
 
-                        val deltaY =
-                            (event.rawY - initialTouchY).toInt()
-
-                        params.x = initialX + deltaX
-                        params.y = initialY + deltaY
+                        params.y = dragY +
+                            (event.rawY - touchY).toInt()
 
                         try {
                             windowManager.updateViewLayout(
@@ -375,7 +354,7 @@ class TacticalOrbService : Service() {
             }
 
         header.setOnTouchListener(dragListener)
-        radar.setOnTouchListener(dragListener)
+        holo.setOnTouchListener(dragListener)
 
         try {
 
@@ -385,11 +364,7 @@ class TacticalOrbService : Service() {
             )
 
             orbContainer = container
-            isOverlayAdded = true
-
-        } catch (_: SecurityException) {
-
-            stopSelf()
+            added = true
 
         } catch (_: Exception) {
 
@@ -397,13 +372,21 @@ class TacticalOrbService : Service() {
         }
     }
 
-    // --------------------------------------------------
-    // SERVICE CLEANUP
-    // --------------------------------------------------
+    private var dragX = 0
+    private var dragY = 0
+
+    private var touchX = 0f
+    private var touchY = 0f
+
+    // -----------------------------------------------
+    // CLEANUP
+    // -----------------------------------------------
 
     override fun onDestroy() {
 
-        if (isOverlayAdded) {
+        holoView?.stopAnimation()
+
+        if (added) {
 
             try {
                 orbContainer?.let {
@@ -413,10 +396,17 @@ class TacticalOrbService : Service() {
             }
         }
 
-        isOverlayAdded = false
+        added = false
 
-        radarView = null
+        holoView = null
         orbContainer = null
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
 
         super.onDestroy()
     }
@@ -425,41 +415,32 @@ class TacticalOrbService : Service() {
         return null
     }
 
-    // --------------------------------------------------
-    // TACTICAL RADAR VIEW
-    // --------------------------------------------------
+    // ===============================================
+    // HOLO GRID GRAPHICS ENGINE
+    // ===============================================
 
-    private class RadarView(
+    private class HoloGridView(
         context: Context
     ) : View(context) {
 
-        private val neonGreen =
-            Color.rgb(40, 255, 115)
-
-        private val softGreen =
-            Color.rgb(20, 145, 65)
+        private val blue = Color.rgb(0, 190, 255)
+        private val brightBlue = Color.rgb(100, 225, 255)
+        private val deepBlue = Color.rgb(0, 65, 130)
 
         private val paint =
             Paint(Paint.ANTI_ALIAS_FLAG)
 
-        private val radarRect =
-            RectF()
+        private val spherePath = Path()
 
         private var rotation = 0f
         private var pulse = 0f
 
-        private val blips = listOf(
-            Blip(-0.48f, -0.32f, 0.5f),
-            Blip(0.55f, -0.12f, 1.3f),
-            Blip(0.30f, 0.55f, 2.0f),
-            Blip(-0.42f, 0.36f, 2.7f),
-            Blip(0.08f, -0.68f, 3.4f)
-        )
+        private var backgroundShader: Shader? = null
 
         private val animator =
             ValueAnimator.ofFloat(0f, 360f).apply {
 
-                duration = 4200L
+                duration = 6500L
 
                 repeatCount =
                     ValueAnimator.INFINITE
@@ -475,7 +456,7 @@ class TacticalOrbService : Service() {
                     pulse = (
                         sin(
                             Math.toRadians(
-                                rotation * 2.0
+                                rotation.toDouble() * 2.0
                             )
                         ) + 1.0
                     ).toFloat() / 2f
@@ -484,12 +465,42 @@ class TacticalOrbService : Service() {
                 }
             }
 
+        override fun onSizeChanged(
+            w: Int,
+            h: Int,
+            oldw: Int,
+            oldh: Int
+        ) {
+            super.onSizeChanged(w, h, oldw, oldh)
+
+            val cx = w / 2f
+            val cy = h / 2f
+            val radius = min(w, h) * 0.36f
+
+            backgroundShader = RadialGradient(
+                cx,
+                cy,
+                radius * 1.5f,
+                intArrayOf(
+                    Color.rgb(0, 85, 160),
+                    Color.rgb(0, 28, 65),
+                    Color.TRANSPARENT
+                ),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        }
+
         override fun onAttachedToWindow() {
             super.onAttachedToWindow()
 
             if (!animator.isStarted) {
                 animator.start()
             }
+        }
+
+        fun stopAnimation() {
+            animator.cancel()
         }
 
         override fun onDetachedFromWindow() {
@@ -503,59 +514,51 @@ class TacticalOrbService : Service() {
             val cx = width / 2f
             val cy = height / 2f
 
-            val radius =
-                min(width, height) * 0.375f
+            val radius = min(width, height) * 0.36f
 
-            radarRect.set(
-                cx - radius,
-                cy - radius,
-                cx + radius,
-                cy + radius
-            )
-
-            drawBackground(
+            drawAmbientGlow(
                 canvas,
                 cx,
                 cy,
                 radius
             )
 
-            drawRadarGrid(
+            drawOrbitalRings(
                 canvas,
                 cx,
                 cy,
                 radius
             )
 
-            drawSweep(
+            drawSphere(
                 canvas,
                 cx,
                 cy,
                 radius
             )
 
-            drawTargets(
+            drawSphereGrid(
                 canvas,
                 cx,
                 cy,
                 radius
             )
 
-            drawCenter(
+            drawSurfaceLights(
                 canvas,
                 cx,
                 cy,
                 radius
             )
 
-            drawOuterScale(
+            drawCore(
                 canvas,
                 cx,
                 cy,
                 radius
             )
 
-            drawDirectionLabels(
+            drawOrbitParticles(
                 canvas,
                 cx,
                 cy,
@@ -563,11 +566,111 @@ class TacticalOrbService : Service() {
             )
         }
 
-        // ----------------------------------------------
-        // BACKGROUND
-        // ----------------------------------------------
+        // -------------------------------------------
+        // AMBIENT GLOW
+        // -------------------------------------------
 
-        private fun drawBackground(
+        private fun drawAmbientGlow(
+            canvas: Canvas,
+            cx: Float,
+            cy: Float,
+            radius: Float
+        ) {
+
+            paint.style = Paint.Style.FILL
+            paint.shader = backgroundShader
+
+            canvas.drawCircle(
+                cx,
+                cy,
+                radius * 1.5f,
+                paint
+            )
+
+            paint.shader = null
+        }
+
+        // -------------------------------------------
+        // ORBITAL RINGS
+        // -------------------------------------------
+
+        private fun drawOrbitalRings(
+            canvas: Canvas,
+            cx: Float,
+            cy: Float,
+            radius: Float
+        ) {
+
+            for (ring in 0..2) {
+
+                val angle =
+                    rotation + ring * 120f
+
+                val orbitPath = Path()
+
+                for (i in 0..100) {
+
+                    val t =
+                        Math.toRadians(
+                            i * 3.6
+                        )
+
+                    val a =
+                        Math.toRadians(
+                            angle.toDouble()
+                        )
+
+                    val x =
+                        cx + cos(t).toFloat() *
+                            radius * 1.28f
+
+                    val y =
+                        cy + sin(t).toFloat() *
+                            radius * 0.30f
+
+                    val dx = x - cx
+                    val dy = y - cy
+
+                    val rx =
+                        dx * cos(a).toFloat() -
+                            dy * sin(a).toFloat()
+
+                    val ry =
+                        dx * sin(a).toFloat() +
+                            dy * cos(a).toFloat()
+
+                    if (i == 0) {
+                        orbitPath.moveTo(
+                            cx + rx,
+                            cy + ry
+                        )
+                    } else {
+                        orbitPath.lineTo(
+                            cx + rx,
+                            cy + ry
+                        )
+                    }
+                }
+
+                orbitPath.close()
+
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.6f
+                paint.color = blue
+                paint.alpha = 125
+
+                canvas.drawPath(
+                    orbitPath,
+                    paint
+                )
+            }
+        }
+
+        // -------------------------------------------
+        // SPHERE BODY
+        // -------------------------------------------
+
+        private fun drawSphere(
             canvas: Canvas,
             cx: Float,
             cy: Float,
@@ -577,13 +680,13 @@ class TacticalOrbService : Service() {
             paint.style = Paint.Style.FILL
 
             paint.shader = RadialGradient(
-                cx,
-                cy,
-                radius,
+                cx - radius * 0.30f,
+                cy - radius * 0.35f,
+                radius * 1.4f,
                 intArrayOf(
-                    Color.rgb(9, 55, 25),
-                    Color.rgb(3, 23, 11),
-                    Color.BLACK
+                    Color.rgb(20, 105, 165),
+                    Color.rgb(3, 35, 75),
+                    Color.rgb(0, 8, 25)
                 ),
                 null,
                 Shader.TileMode.CLAMP
@@ -598,10 +701,10 @@ class TacticalOrbService : Service() {
 
             paint.shader = null
 
-            paint.color = neonGreen
-            paint.alpha = 35
             paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.5f
+            paint.strokeWidth = 1.7f
+            paint.color = brightBlue
+            paint.alpha = 210
 
             canvas.drawCircle(
                 cx,
@@ -611,240 +714,175 @@ class TacticalOrbService : Service() {
             )
         }
 
-        // ----------------------------------------------
-        // RADAR GRID
-        // ----------------------------------------------
+        // -------------------------------------------
+        // HOLOGRAPHIC LATITUDE / LONGITUDE GRID
+        // -------------------------------------------
 
-        private fun drawRadarGrid(
+        private fun drawSphereGrid(
             canvas: Canvas,
             cx: Float,
             cy: Float,
             radius: Float
         ) {
 
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1f
-            paint.color = neonGreen
-            paint.alpha = 90
+            spherePath.reset()
 
-            for (i in 1..4) {
-
-                canvas.drawCircle(
+            val clip = Path().apply {
+                addCircle(
                     cx,
                     cy,
-                    radius * i / 4f,
-                    paint
+                    radius,
+                    Path.Direction.CW
                 )
             }
 
-            // Horizontal and vertical crosshair
+            val save = canvas.save()
 
-            paint.alpha = 100
+            canvas.clipPath(clip)
 
-            canvas.drawLine(
-                cx - radius,
-                cy,
-                cx + radius,
-                cy,
-                paint
-            )
+            // Longitude lines
 
-            canvas.drawLine(
-                cx,
-                cy - radius,
-                cx,
-                cy + radius,
-                paint
-            )
+            for (line in -5..5) {
 
-            // Radial direction lines
+                val baseAngle =
+                    line * 0.30f
 
-            for (angle in 0 until 360 step 30) {
-
-                val radians =
-                    Math.toRadians(angle.toDouble())
-
-                val x =
-                    cx + cos(radians).toFloat() * radius
-
-                val y =
-                    cy + sin(radians).toFloat() * radius
-
-                paint.alpha = 55
-
-                canvas.drawLine(
-                    cx,
-                    cy,
-                    x,
-                    y,
-                    paint
-                )
-            }
-
-            // Inner rotating reference circle
-
-            paint.alpha = 100
-            paint.strokeWidth = 1.3f
-
-            canvas.drawCircle(
-                cx,
-                cy,
-                radius * 0.50f,
-                paint
-            )
-        }
-
-        // ----------------------------------------------
-        // RADAR SWEEP
-        // ----------------------------------------------
-
-        private fun drawSweep(
-            canvas: Canvas,
-            cx: Float,
-            cy: Float,
-            radius: Float
-        ) {
-
-            canvas.save()
-
-            canvas.rotate(
-                rotation,
-                cx,
-                cy
-            )
-
-            val sweepPath = Path().apply {
-
-                moveTo(cx, cy)
-
-                arcTo(
-                    radarRect,
-                    -58f,
-                    58f
-                )
-
-                close()
-            }
-
-            paint.style = Paint.Style.FILL
-            paint.color = neonGreen
-            paint.alpha = 55
-
-            canvas.drawPath(
-                sweepPath,
-                paint
-            )
-
-            // Bright leading edge
-
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 3f
-            paint.color = neonGreen
-            paint.alpha = 240
-
-            canvas.drawLine(
-                cx,
-                cy,
-                cx + radius,
-                cy,
-                paint
-            )
-
-            // Sweep glow
-
-            paint.strokeWidth = 8f
-            paint.alpha = 35
-
-            canvas.drawLine(
-                cx,
-                cy,
-                cx + radius,
-                cy,
-                paint
-            )
-
-            canvas.restore()
-        }
-
-        // ----------------------------------------------
-        // RADAR TARGETS
-        // ----------------------------------------------
-
-        private fun drawTargets(
-            canvas: Canvas,
-            cx: Float,
-            cy: Float,
-            radius: Float
-        ) {
-
-            for (blip in blips) {
-
-                val x =
-                    cx + blip.x * radius
-
-                val y =
-                    cy + blip.y * radius
-
-                val wave = (
-                    sin(
+                val angle =
+                    baseAngle +
                         Math.toRadians(
-                            rotation * 2.0
-                        ) + blip.phase
-                    ) + 1.0
-                ).toFloat() / 2f
+                            rotation.toDouble()
+                        ).toFloat()
 
-                val alpha =
-                    (100 + wave * 155).toInt()
+                val visibility =
+                    cos(angle)
+
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth =
+                    if (line == 0) 1.8f else 1.0f
+
+                paint.color = brightBlue
+                paint.alpha =
+                    (65 + 140 *
+                        ((visibility + 1f) / 2f)
+                    ).toInt()
+
+                val path = Path()
+
+                for (step in 0..80) {
+
+                    val latitude =
+                        -Math.PI / 2.0 +
+                            step * Math.PI / 80.0
+
+                    val x =
+                        cx + sin(angle.toDouble()).toFloat() *
+                            cos(latitude).toFloat() * radius
+
+                    val y =
+                        cy + sin(latitude).toFloat() * radius
+
+                    if (step == 0) {
+                        path.moveTo(x, y)
+                    } else {
+                        path.lineTo(x, y)
+                    }
+                }
+
+                canvas.drawPath(
+                    path,
+                    paint
+                )
+            }
+
+            // Latitude lines
+
+            for (line in -4..4) {
+
+                val latitude =
+                    line * 0.30
+
+                val y =
+                    cy + sin(latitude).toFloat() * radius
+
+                val halfWidth =
+                    cos(latitude).toFloat() * radius
+
+                paint.color = blue
+                paint.alpha = 175
+                paint.strokeWidth = 1f
+
+                canvas.drawOval(
+                    cx - halfWidth,
+                    y - halfWidth * 0.10f,
+                    cx + halfWidth,
+                    y + halfWidth * 0.10f,
+                    paint
+                )
+            }
+
+            canvas.restoreToCount(save)
+        }
+
+        // -------------------------------------------
+        // SURFACE LIGHTS
+        // -------------------------------------------
+
+        private fun drawSurfaceLights(
+            canvas: Canvas,
+            cx: Float,
+            cy: Float,
+            radius: Float
+        ) {
+
+            val points = arrayOf(
+                Pair(-0.48f, -0.30f),
+                Pair(0.42f, -0.35f),
+                Pair(0.58f, 0.10f),
+                Pair(-0.40f, 0.43f),
+                Pair(0.25f, 0.57f),
+                Pair(-0.10f, -0.62f)
+            )
+
+            for ((x, y) in points) {
+
+                val px = cx + x * radius
+                val py = cy + y * radius
+
+                val wave =
+                    (sin(
+                        Math.toRadians(
+                            rotation.toDouble() * 2.0
+                        ) + x * 8.0
+                    ) + 1.0).toFloat() / 2f
 
                 paint.style = Paint.Style.FILL
-                paint.color = neonGreen
-                paint.alpha = alpha
+                paint.color = brightBlue
+                paint.alpha =
+                    (100 + wave * 155).toInt()
 
                 canvas.drawCircle(
-                    x,
-                    y,
-                    3.5f + wave * 2f,
+                    px,
+                    py,
+                    2.5f + wave * 2f,
                     paint
                 )
 
                 paint.alpha = 45
 
                 canvas.drawCircle(
-                    x,
-                    y,
-                    8f + wave * 5f,
-                    paint
-                )
-
-                // Small target crosshair
-
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1f
-                paint.alpha = 130
-
-                canvas.drawLine(
-                    x - 8f,
-                    y,
-                    x + 8f,
-                    y,
-                    paint
-                )
-
-                canvas.drawLine(
-                    x,
-                    y - 8f,
-                    x,
-                    y + 8f,
+                    px,
+                    py,
+                    7f + wave * 4f,
                     paint
                 )
             }
         }
 
-        // ----------------------------------------------
-        // CENTRAL CORE
-        // ----------------------------------------------
+        // -------------------------------------------
+        // CENTRAL ENERGY CORE
+        // -------------------------------------------
 
-        private fun drawCenter(
+        private fun drawCore(
             canvas: Canvas,
             cx: Float,
             cy: Float,
@@ -852,23 +890,24 @@ class TacticalOrbService : Service() {
         ) {
 
             paint.style = Paint.Style.FILL
-            paint.color = neonGreen
+            paint.color = blue
             paint.alpha =
-                (45 + pulse * 65).toInt()
+                (35 + pulse * 55).toInt()
 
             canvas.drawCircle(
                 cx,
                 cy,
-                radius * (0.22f + pulse * 0.035f),
+                radius * (0.25f + pulse * 0.04f),
                 paint
             )
 
-            paint.alpha = 230
+            paint.alpha = 220
+            paint.color = brightBlue
 
             canvas.drawCircle(
                 cx,
                 cy,
-                radius * 0.105f,
+                radius * 0.10f,
                 paint
             )
 
@@ -882,115 +921,56 @@ class TacticalOrbService : Service() {
                 paint
             )
 
-            // Core outline
-
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1.5f
-            paint.color = neonGreen
+            paint.color = brightBlue
             paint.alpha = 220
 
             canvas.drawCircle(
                 cx,
                 cy,
-                radius * 0.26f,
+                radius * 0.30f,
                 paint
             )
         }
 
-        // ----------------------------------------------
-        // OUTER SCALE
-        // ----------------------------------------------
+        // -------------------------------------------
+        // ORBIT PARTICLES
+        // -------------------------------------------
 
-        private fun drawOuterScale(
+        private fun drawOrbitParticles(
             canvas: Canvas,
             cx: Float,
             cy: Float,
             radius: Float
         ) {
 
-            paint.style = Paint.Style.STROKE
-            paint.color = neonGreen
-            paint.alpha = 210
+            for (i in 0 until 4) {
 
-            for (angle in 0 until 360 step 5) {
+                val angle =
+                    Math.toRadians(
+                        (rotation + i * 90f).toDouble()
+                    )
 
-                val radians =
-                    Math.toRadians(angle.toDouble())
+                val x =
+                    cx + cos(angle).toFloat() *
+                        radius * 1.28f
 
-                val inner =
-                    radius * 1.05f
+                val y =
+                    cy + sin(angle).toFloat() *
+                        radius * 0.30f
 
-                val outer =
-                    if (angle % 30 == 0) {
-                        radius * 1.16f
-                    } else {
-                        radius * 1.09f
-                    }
+                paint.style = Paint.Style.FILL
+                paint.color = brightBlue
+                paint.alpha = 230
 
-                paint.strokeWidth =
-                    if (angle % 30 == 0) 2f else 1f
-
-                canvas.drawLine(
-                    cx + cos(radians).toFloat() * inner,
-                    cy + sin(radians).toFloat() * inner,
-                    cx + cos(radians).toFloat() * outer,
-                    cy + sin(radians).toFloat() * outer,
+                canvas.drawCircle(
+                    x,
+                    y,
+                    3f,
                     paint
                 )
             }
         }
-
-        // ----------------------------------------------
-        // COMPASS LABELS
-        // ----------------------------------------------
-
-        private fun drawDirectionLabels(
-            canvas: Canvas,
-            cx: Float,
-            cy: Float,
-            radius: Float
-        ) {
-
-            paint.style = Paint.Style.FILL
-            paint.color = neonGreen
-            paint.alpha = 230
-            paint.textSize = 9f
-            paint.typeface = Typeface.DEFAULT_BOLD
-            paint.textAlign = Paint.Align.CENTER
-
-            canvas.drawText(
-                "N",
-                cx,
-                cy - radius * 1.23f,
-                paint
-            )
-
-            canvas.drawText(
-                "S",
-                cx,
-                cy + radius * 1.29f,
-                paint
-            )
-
-            canvas.drawText(
-                "W",
-                cx - radius * 1.23f,
-                cy + 3f,
-                paint
-            )
-
-            canvas.drawText(
-                "E",
-                cx + radius * 1.23f,
-                cy + 3f,
-                paint
-            )
-        }
-
-        private data class Blip(
-            val x: Float,
-            val y: Float,
-            val phase: Float
-        )
     }
 }
