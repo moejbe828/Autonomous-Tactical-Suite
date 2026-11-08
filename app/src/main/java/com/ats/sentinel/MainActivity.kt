@@ -14,16 +14,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.sqrt
 
 private val Background = Color(0xFF050B16)
 private val SurfaceDark = Color(0xFF101D30)
@@ -63,7 +64,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestOrbStart() {
-
         if (Settings.canDrawOverlays(this)) {
             startOrbService()
             return
@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startOrbService() {
-
         val intent = Intent(
             this,
             TacticalOrbService::class.java
@@ -95,7 +94,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopOrbService() {
-
         val intent = Intent(
             this,
             TacticalOrbService::class.java
@@ -118,7 +116,6 @@ fun ATSApp(
     onStartOrb: () -> Unit,
     onStopOrb: () -> Unit
 ) {
-
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Blue,
@@ -126,19 +123,16 @@ fun ATSApp(
             surface = SurfaceDark
         )
     ) {
-
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = Background
         ) {
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Background)
                     .padding(20.dp)
             ) {
-
                 DashboardHeader(isOrbRunning)
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -202,7 +196,7 @@ fun ATSApp(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "ATS 1.0  •  OFFLINE-FIRST  •  ANDROID 11",
+                    text = "ATS 1.0 • OFFLINE-FIRST • ANDROID 11",
                     color = Muted.copy(alpha = 0.65f),
                     fontSize = 9.sp,
                     modifier = Modifier.align(
@@ -216,15 +210,12 @@ fun ATSApp(
 
 @Composable
 private fun DashboardHeader(isOrbRunning: Boolean) {
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-
         Column {
-
             Text(
                 text = "ATS",
                 color = Blue,
@@ -244,7 +235,6 @@ private fun DashboardHeader(isOrbRunning: Boolean) {
         Column(
             horizontalAlignment = Alignment.End
         ) {
-
             Text(
                 text = "SYSTEM",
                 color = Muted,
@@ -255,7 +245,6 @@ private fun DashboardHeader(isOrbRunning: Boolean) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
                 Box(
                     modifier = Modifier
                         .size(8.dp)
@@ -280,7 +269,6 @@ private fun DashboardHeader(isOrbRunning: Boolean) {
 
 @Composable
 private fun SystemStatusCard(isOrbRunning: Boolean) {
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -288,11 +276,9 @@ private fun SystemStatusCard(isOrbRunning: Boolean) {
             containerColor = SurfaceDark
         )
     ) {
-
         Column(
             modifier = Modifier.padding(17.dp)
         ) {
-
             Text(
                 text = "TACTICAL SYSTEM STATUS",
                 color = Muted,
@@ -305,14 +291,11 @@ private fun SystemStatusCard(isOrbRunning: Boolean) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
                 Box(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(
-                            Blue.copy(alpha = 0.12f)
-                        ),
+                        .background(Blue.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -328,7 +311,6 @@ private fun SystemStatusCard(isOrbRunning: Boolean) {
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
-
                     Text(
                         text = if (isOrbRunning)
                             "HOLO GRID ACTIVE"
@@ -366,7 +348,6 @@ private fun OrbControlCard(
     onStartOrb: () -> Unit,
     onStopOrb: () -> Unit
 ) {
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -374,14 +355,12 @@ private fun OrbControlCard(
             containerColor = SurfaceDark
         )
     ) {
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(17.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-
             Text(
                 text = "HOLOGRAPHIC CORE",
                 color = White,
@@ -453,16 +432,13 @@ private fun OrbControlCard(
 
 @Composable
 private fun HoloGridPreview() {
-
     Box(
         modifier = Modifier.size(175.dp),
         contentAlignment = Alignment.Center
     ) {
-
         Canvas(
             modifier = Modifier.fillMaxSize()
         ) {
-
             val cx = center.x
             val cy = center.y
             val radius = size.minDimension * 0.36f
@@ -497,10 +473,9 @@ private fun HoloGridPreview() {
             )
 
             for (i in -3..3) {
-
                 val y = cy + i * radius * 0.22f
 
-                val factor = kotlin.math.sqrt(
+                val factor = sqrt(
                     (1f - (i * 0.22f) * (i * 0.22f))
                         .coerceAtLeast(0f)
                 )
@@ -522,7 +497,6 @@ private fun HoloGridPreview() {
             }
 
             for (i in -3..3) {
-
                 val x = cx + i * radius * 0.22f
 
                 drawOval(
@@ -576,7 +550,6 @@ private fun HoloGridPreview() {
 
 @Composable
 private fun SectionTitle(title: String) {
-
     Text(
         text = title,
         color = Blue,
@@ -593,7 +566,6 @@ private fun ModuleCard(
     status: String,
     indicator: Color
 ) {
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -603,14 +575,12 @@ private fun ModuleCard(
             containerColor = SurfaceDark
         )
     ) {
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-
             Box(
                 modifier = Modifier
                     .size(8.dp)
@@ -623,7 +593,6 @@ private fun ModuleCard(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-
                 Text(
                     text = title,
                     color = White,
