@@ -11,12 +11,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,17 +24,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 
-private val TacticalBackground = Color(0xFF050B16)
-private val TacticalSurface = Color(0xFF101D30)
-private val TacticalBlue = Color(0xFF00BFFF)
-private val TacticalMuted = Color(0xFF7895B5)
-private val TacticalWhite = Color(0xFFE8F5FF)
+private val Background = Color(0xFF050B16)
+private val SurfaceDark = Color(0xFF101D30)
+private val Blue = Color(0xFF00BFFF)
+private val White = Color(0xFFE8F5FF)
+private val Muted = Color(0xFF7895B5)
+private val Green = Color(0xFF35D69A)
 
 class MainActivity : ComponentActivity() {
 
     private var pendingOrbStart = false
+    private val orbRunning = mutableStateOf(false)
 
     private val overlayPermissionLauncher =
         registerForActivityResult(
@@ -56,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ATSApp(
+                isOrbRunning = orbRunning.value,
                 onStartOrb = { requestOrbStart() },
                 onStopOrb = { stopOrbService() }
             )
@@ -86,10 +86,12 @@ class MainActivity : ComponentActivity() {
             TacticalOrbService::class.java
         )
 
-        ContextCompat.startForegroundService(
-            this,
-            intent
-        )
+        try {
+            startForegroundService(intent)
+            orbRunning.value = true
+        } catch (_: Exception) {
+            orbRunning.value = false
+        }
     }
 
     private fun stopOrbService() {
@@ -101,97 +103,95 @@ class MainActivity : ComponentActivity() {
             action = TacticalOrbService.ACTION_STOP
         }
 
-        startService(intent)
+        try {
+            startService(intent)
+        } catch (_: Exception) {
+        }
+
+        orbRunning.value = false
     }
 }
 
 @Composable
 fun ATSApp(
+    isOrbRunning: Boolean,
     onStartOrb: () -> Unit,
     onStopOrb: () -> Unit
 ) {
 
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = TacticalBlue,
-            background = TacticalBackground,
-            surface = TacticalSurface,
-            onBackground = TacticalWhite,
-            onSurface = TacticalWhite
+            primary = Blue,
+            background = Background,
+            surface = SurfaceDark
         )
     ) {
 
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = TacticalBackground
+            color = Background
         ) {
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .background(Background)
                     .padding(20.dp)
             ) {
 
-                HeaderSection()
+                DashboardHeader(isOrbRunning)
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-                OrbSection(
+                SystemStatusCard(isOrbRunning)
+
+                Spacer(modifier = Modifier.height(22.dp))
+
+                OrbControlCard(
+                    isOrbRunning = isOrbRunning,
                     onStartOrb = onStartOrb,
                     onStopOrb = onStopOrb
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
-                SectionTitle("SYSTEM OVERVIEW")
+                SectionTitle("SYSTEM MODULES")
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                StatusCard(
-                    "EDGE AI ENGINE",
-                    "Local inference engine",
-                    "NOT CONNECTED",
-                    TacticalMuted
+                ModuleCard(
+                    "HOLO GRID",
+                    "Floating visual interface",
+                    if (isOrbRunning) "RUNNING" else "READY",
+                    if (isOrbRunning) Green else Blue
                 )
 
-                StatusCard(
+                ModuleCard(
+                    "EDGE AI ENGINE",
+                    "Local inference engine",
+                    "NOT CONFIGURED",
+                    Muted
+                )
+
+                ModuleCard(
                     "NETWORK DEFENSE",
                     "Local network monitoring",
                     "NOT ACTIVE",
-                    TacticalMuted
+                    Muted
                 )
 
-                StatusCard(
-                    "THREAT ANALYSIS",
-                    "Security analysis module",
-                    "STANDBY",
-                    TacticalBlue
+                ModuleCard(
+                    "EVENT LOGGER",
+                    "Local event recording",
+                    "PLANNED",
+                    Muted
                 )
 
-                StatusCard(
-                    "VOICE ENGINE",
-                    "Offline speech services",
-                    "NOT CONFIGURED",
-                    TacticalMuted
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                SectionTitle("SYSTEM INFORMATION")
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                InfoRow("PLATFORM", "ANDROID 11")
-                InfoRow("APPLICATION", "ATS SENTINEL")
-                InfoRow("VERSION", "0.1.0")
-                InfoRow("OPERATION MODE", "OFFLINE-FIRST")
-
-                Spacer(modifier = Modifier.height(30.dp))
+                Spacer(modifier = Modifier.weight(1f))
 
                 Text(
                     text = "AUTONOMOUS TACTICAL SUITE",
-                    color = TacticalMuted,
+                    color = Muted,
                     fontSize = 10.sp,
                     letterSpacing = 2.sp,
                     modifier = Modifier.align(
@@ -199,14 +199,23 @@ fun ATSApp(
                     )
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "ATS 1.0  •  OFFLINE-FIRST  •  ANDROID 11",
+                    color = Muted.copy(alpha = 0.65f),
+                    fontSize = 9.sp,
+                    modifier = Modifier.align(
+                        Alignment.CenterHorizontally
+                    )
+                )
             }
         }
     }
 }
 
 @Composable
-private fun HeaderSection() {
+private fun DashboardHeader(isOrbRunning: Boolean) {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -218,15 +227,15 @@ private fun HeaderSection() {
 
             Text(
                 text = "ATS",
-                color = TacticalBlue,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
+                color = Blue,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Black,
                 letterSpacing = 4.sp
             )
 
             Text(
                 text = "TACTICAL SENTINEL",
-                color = TacticalWhite,
+                color = White,
                 fontSize = 11.sp,
                 letterSpacing = 2.sp
             )
@@ -237,99 +246,207 @@ private fun HeaderSection() {
         ) {
 
             Text(
-                text = "SYSTEM STATUS",
-                color = TacticalMuted,
+                text = "SYSTEM",
+                color = Muted,
                 fontSize = 9.sp,
-                letterSpacing = 1.sp
+                letterSpacing = 2.sp
             )
 
-            Text(
-                text = "HOLO GRID READY",
-                color = TacticalBlue,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isOrbRunning) Green else Blue
+                        )
+                )
+
+                Spacer(modifier = Modifier.width(7.dp))
+
+                Text(
+                    text = if (isOrbRunning) "ACTIVE" else "STANDBY",
+                    color = if (isOrbRunning) Green else Blue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun OrbSection(
+private fun SystemStatusCard(isOrbRunning: Boolean) {
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = SurfaceDark
+        )
+    ) {
+
+        Column(
+            modifier = Modifier.padding(17.dp)
+        ) {
+
+            Text(
+                text = "TACTICAL SYSTEM STATUS",
+                color = Muted,
+                fontSize = 10.sp,
+                letterSpacing = 1.5.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Blue.copy(alpha = 0.12f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "ATS",
+                        color = Blue,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(13.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text = if (isOrbRunning)
+                            "HOLO GRID ACTIVE"
+                        else
+                            "SYSTEM READY",
+                        color = White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text(
+                        text = if (isOrbRunning)
+                            "Floating interface requested"
+                        else
+                            "Waiting for operator command",
+                        color = Muted,
+                        fontSize = 10.sp
+                    )
+                }
+
+                Text(
+                    text = if (isOrbRunning) "ON" else "OFF",
+                    color = if (isOrbRunning) Green else Muted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrbControlCard(
+    isOrbRunning: Boolean,
     onStartOrb: () -> Unit,
     onStopOrb: () -> Unit
 ) {
 
-    Column(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = SurfaceDark
+        )
     ) {
 
-        Text(
-            text = "HOLOGRAPHIC CORE",
-            color = TacticalWhite,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        HoloGridPreview()
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "HOLO GRID // BLUE EDITION",
-            color = TacticalBlue,
-            fontSize = 11.sp,
-            letterSpacing = 1.5.sp
-        )
-
-        Text(
-            text = "Floating holographic interface",
-            color = TacticalMuted,
-            fontSize = 10.sp
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Button(
-            onClick = onStartOrb,
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF064C79),
-                contentColor = Color.White
-            )
+                .padding(17.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
             Text(
-                text = "START HOLO GRID",
+                text = "HOLOGRAPHIC CORE",
+                color = White,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            HoloGridPreview()
+
+            Text(
+                text = "BLUE HOLOGRAPHIC ORB",
+                color = Blue,
+                fontSize = 11.sp,
                 letterSpacing = 1.5.sp
             )
-        }
 
-        Spacer(modifier = Modifier.height(9.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-        OutlinedButton(
-            onClick = onStopOrb,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(45.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = TacticalBlue
-            )
-        ) {
+            Button(
+                onClick = onStartOrb,
+                enabled = !isOrbRunning,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF07568A),
+                    contentColor = White,
+                    disabledContainerColor = Color(0xFF18364B),
+                    disabledContentColor = Muted
+                )
+            ) {
+                Text(
+                    text = if (isOrbRunning)
+                        "HOLO GRID IS RUNNING"
+                    else
+                        "START HOLO GRID",
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
 
-            Text(
-                text = "STOP HOLO GRID",
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            )
+            Spacer(modifier = Modifier.height(9.dp))
+
+            OutlinedButton(
+                onClick = onStopOrb,
+                enabled = isOrbRunning,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(45.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = Blue,
+                    disabledContentColor = Muted
+                )
+            ) {
+                Text(
+                    text = "STOP HOLO GRID",
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
         }
     }
 }
@@ -338,7 +455,7 @@ private fun OrbSection(
 private fun HoloGridPreview() {
 
     Box(
-        modifier = Modifier.size(210.dp),
+        modifier = Modifier.size(175.dp),
         contentAlignment = Alignment.Center
     ) {
 
@@ -350,25 +467,13 @@ private fun HoloGridPreview() {
             val cy = center.y
             val radius = size.minDimension * 0.36f
 
-            // Outer glow rings
-
             drawCircle(
-                color = TacticalBlue.copy(alpha = 0.12f),
-                radius = radius * 1.35f,
-                center = center
+                color = Blue.copy(alpha = 0.10f),
+                radius = radius * 1.35f
             )
-
-            drawCircle(
-                color = TacticalBlue.copy(alpha = 0.25f),
-                radius = radius * 1.12f,
-                center = center,
-                style = Stroke(width = 2.dp.toPx())
-            )
-
-            // Orbital rings
 
             drawOval(
-                color = TacticalBlue.copy(alpha = 0.65f),
+                color = Blue.copy(alpha = 0.65f),
                 topLeft = androidx.compose.ui.geometry.Offset(
                     cx - radius * 1.25f,
                     cy - radius * 0.32f
@@ -381,36 +486,29 @@ private fun HoloGridPreview() {
             )
 
             drawCircle(
-                color = TacticalBlue.copy(alpha = 0.35f),
+                color = Blue.copy(alpha = 0.9f),
                 radius = radius,
-                center = center,
                 style = Stroke(width = 1.5.dp.toPx())
             )
 
-            // Sphere body
-
             drawCircle(
                 color = Color(0xFF062B50),
-                radius = radius * 0.88f,
-                center = center
+                radius = radius * 0.88f
             )
-
-            // Latitude lines
 
             for (i in -3..3) {
 
                 val y = cy + i * radius * 0.22f
 
-                val widthFactor =
-                    kotlin.math.sqrt(
-                        (1f - (i * 0.22f) * (i * 0.22f))
-                            .coerceAtLeast(0f)
-                    )
+                val factor = kotlin.math.sqrt(
+                    (1f - (i * 0.22f) * (i * 0.22f))
+                        .coerceAtLeast(0f)
+                )
 
-                val halfWidth = radius * 0.88f * widthFactor
+                val halfWidth = radius * 0.88f * factor
 
                 drawOval(
-                    color = TacticalBlue.copy(alpha = 0.65f),
+                    color = Blue.copy(alpha = 0.65f),
                     topLeft = androidx.compose.ui.geometry.Offset(
                         cx - halfWidth,
                         y - 3.dp.toPx()
@@ -423,14 +521,12 @@ private fun HoloGridPreview() {
                 )
             }
 
-            // Longitude lines
-
             for (i in -3..3) {
 
                 val x = cx + i * radius * 0.22f
 
                 drawOval(
-                    color = TacticalBlue.copy(alpha = 0.55f),
+                    color = Blue.copy(alpha = 0.55f),
                     topLeft = androidx.compose.ui.geometry.Offset(
                         x - radius * 0.12f,
                         cy - radius * 0.88f
@@ -443,27 +539,20 @@ private fun HoloGridPreview() {
                 )
             }
 
-            // Central core
-
             drawCircle(
-                color = TacticalBlue.copy(alpha = 0.25f),
-                radius = radius * 0.28f,
-                center = center
+                color = Blue.copy(alpha = 0.25f),
+                radius = radius * 0.28f
             )
 
             drawCircle(
-                color = TacticalBlue,
-                radius = radius * 0.10f,
-                center = center
+                color = Blue,
+                radius = radius * 0.10f
             )
 
             drawCircle(
                 color = Color.White,
-                radius = radius * 0.035f,
-                center = center
+                radius = radius * 0.035f
             )
-
-            // Orbit particle
 
             drawCircle(
                 color = Color.White,
@@ -477,7 +566,7 @@ private fun HoloGridPreview() {
 
         Text(
             text = "ATS",
-            color = TacticalWhite,
+            color = White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 2.sp
@@ -490,7 +579,7 @@ private fun SectionTitle(title: String) {
 
     Text(
         text = title,
-        color = TacticalBlue,
+        color = Blue,
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 2.sp
@@ -498,9 +587,9 @@ private fun SectionTitle(title: String) {
 }
 
 @Composable
-private fun StatusCard(
+private fun ModuleCard(
     title: String,
-    subtitle: String,
+    description: String,
     status: String,
     indicator: Color
 ) {
@@ -508,28 +597,28 @@ private fun StatusCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 10.dp),
+            .padding(bottom = 9.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = TacticalSurface
+            containerColor = SurfaceDark
         )
     ) {
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(15.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             Box(
                 modifier = Modifier
-                    .size(9.dp)
+                    .size(8.dp)
                     .clip(CircleShape)
                     .background(indicator)
             )
 
-            Spacer(modifier = Modifier.width(13.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(
                 modifier = Modifier.weight(1f)
@@ -537,15 +626,15 @@ private fun StatusCard(
 
                 Text(
                     text = title,
-                    color = TacticalWhite,
-                    fontSize = 12.sp,
+                    color = White,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = subtitle,
-                    color = TacticalMuted,
-                    fontSize = 10.sp
+                    text = description,
+                    color = Muted,
+                    fontSize = 9.sp
                 )
             }
 
@@ -557,37 +646,4 @@ private fun StatusCard(
             )
         }
     }
-}
-
-@Composable
-private fun InfoRow(
-    label: String,
-    value: String
-) {
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 9.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-
-        Text(
-            text = label,
-            color = TacticalMuted,
-            fontSize = 10.sp
-        )
-
-        Text(
-            text = value,
-            color = TacticalWhite,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-
-    HorizontalDivider(
-        color = TacticalSurface,
-        thickness = 1.dp
-    )
 }
