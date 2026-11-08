@@ -11,19 +11,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 
 private val Background = Color(0xFF050B16)
@@ -116,6 +122,21 @@ fun ATSApp(
     onStartOrb: () -> Unit,
     onStopOrb: () -> Unit
 ) {
+    val context = LocalContext.current
+
+    val snapshotState = remember(context) {
+        mutableStateOf(DeviceMonitor.readSnapshot(context))
+    }
+
+    LaunchedEffect(context) {
+        while (true) {
+            snapshotState.value =
+                DeviceMonitor.readSnapshot(context)
+
+            delay(5000L)
+        }
+    }
+
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Blue,
@@ -131,6 +152,7 @@ fun ATSApp(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Background)
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
                 DashboardHeader(isOrbRunning)
@@ -138,6 +160,10 @@ fun ATSApp(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 SystemStatusCard(isOrbRunning)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                DeviceMonitorCard(snapshotState.value)
 
                 Spacer(modifier = Modifier.height(22.dp))
 
@@ -181,7 +207,7 @@ fun ATSApp(
                     Muted
                 )
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
                     text = "AUTONOMOUS TACTICAL SUITE",
@@ -203,6 +229,8 @@ fun ATSApp(
                         Alignment.CenterHorizontally
                     )
                 )
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -338,6 +366,133 @@ private fun SystemStatusCard(isOrbRunning: Boolean) {
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DeviceMonitorCard(snapshot: DeviceSnapshot) {
+
+    val memoryUsedMb =
+        (snapshot.memoryTotalMb - snapshot.memoryAvailableMb)
+            .coerceAtLeast(0L)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = SurfaceDark
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(17.dp)
+        ) {
+
+            Text(
+                text = "DEVICE MONITOR",
+                color = Blue,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "BATTERY",
+                    color = Muted,
+                    fontSize = 11.sp
+                )
+
+                Text(
+                    text = if (snapshot.batteryPercent >= 0)
+                    "${snapshot.batteryPercent}%"
+                    else "N/A",
+                    color = Green,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(5.dp))
+
+            Text(
+                text = snapshot.chargingState,
+                color = White,
+                fontSize = 10.sp
+            )
+
+            Spacer(modifier = Modifier.height(17.dp))
+
+            Text(
+                text = "SYSTEM MEMORY",
+                color = Muted,
+                fontSize = 11.sp
+            )
+
+            Spacer(modifier = Modifier.height(7.dp))
+
+            Text(
+                text = "${snapshot.memoryUsedPercent}% USED",
+                color = Blue,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(5.dp))
+
+            Text(
+                text = "USED: ${memoryUsedMb} MB",
+                color = White,
+                fontSize = 10.sp
+            )
+
+            Text(
+                text = "AVAILABLE: ${snapshot.memoryAvailableMb} MB",
+                color = White,
+                fontSize = 10.sp
+            )
+
+            Text(
+                text = "TOTAL: ${snapshot.memoryTotalMb} MB",
+                color = Muted,
+                fontSize = 10.sp
+            )
+
+            Spacer(modifier = Modifier.height(17.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "DEVICE UPTIME",
+                    color = Muted,
+                    fontSize = 11.sp
+                )
+
+                Text(
+                    text = snapshot.uptime,
+                    color = Green,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "LOCAL MONITORING • AUTO REFRESH 5 SEC",
+                color = Muted.copy(alpha = 0.7f),
+                fontSize = 9.sp,
+                letterSpacing = 1.sp
+            )
         }
     }
 }
