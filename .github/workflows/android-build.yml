@@ -30,11 +30,6 @@ jobs:
 
       - name: Setup Android SDK Tools
         uses: android-actions/setup-android@v4
-        with:
-          cmdline-tools-version: '12266719'
-          accept-android-sdk-licenses: 'false'
-          log-accepted-android-sdk-licenses: 'false'
-          packages: ''
 
       - name: Accept Android SDK Licenses
         run: |
@@ -54,9 +49,17 @@ jobs:
       - name: Verify Gradle Wrapper
         run: ./gradlew --version
 
+      - name: Validate Android Manifest XML
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          ET.parse("app/src/main/AndroidManifest.xml")
+          print("AndroidManifest.xml is valid XML")
+          PY
+
       - name: Build, Test and Lint
         run: |
-          ./gradlew --no-daemon clean \
+          ./gradlew --no-daemon --stacktrace --info clean \
             :app:assembleDebug \
             :app:testDebugUnitTest \
             :app:lintDebug
