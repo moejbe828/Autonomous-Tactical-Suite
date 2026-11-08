@@ -5,7 +5,6 @@ import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -16,8 +15,6 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RadialGradient
 import android.graphics.Shader
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
@@ -26,7 +23,6 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
-import android.widget.TextView
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -112,37 +108,17 @@ class TacticalOrbService : Service() {
 
     private fun createNotification(): Notification {
 
-        val stopIntent = Intent(
-            this,
-            TacticalOrbService::class.java
-        ).apply {
-            action = ACTION_STOP
-        }
-
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1102,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or
-                PendingIntent.FLAG_IMMUTABLE
-        )
-
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("ATS TACTICAL SENTINEL")
             .setContentText("HOLO GRID is running")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "STOP",
-                stopPendingIntent
-            )
             .build()
     }
 
     // -----------------------------------------
-    // MINI CIRCULAR FLOATING ORB
+    // MEDIUM CIRCULAR FLOATING ORB
     // -----------------------------------------
 
     private fun showOrb() {
@@ -164,43 +140,9 @@ class TacticalOrbService : Service() {
             )
         )
 
-        // Small independent stop button
-
-        val stopButton = TextView(this).apply {
-
-            text = "×"
-            textSize = 21f
-            gravity = Gravity.CENTER
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            contentDescription = "Stop ATS Orb"
-
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.rgb(3, 28, 52))
-                setStroke(
-                    dp(1),
-                    Color.rgb(0, 190, 255)
-                )
-            }
-
-            setOnClickListener {
-                stopSelf()
-            }
-        }
-
-        container.addView(
-            stopButton,
-            FrameLayout.LayoutParams(
-                dp(25),
-                dp(25),
-                Gravity.TOP or Gravity.END
-            )
-        )
-
         val params = WindowManager.LayoutParams(
-            dp(136),
-            dp(136),
+            dp(112),
+            dp(112),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -212,7 +154,7 @@ class TacticalOrbService : Service() {
             y = dp(130)
         }
 
-        // Drag the orb without blocking the stop button
+        // Drag the orb across the screen
 
         val dragListener =
             View.OnTouchListener { _, event ->
