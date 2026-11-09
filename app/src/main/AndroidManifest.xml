@@ -1,6 +1,8 @@
+
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Speech Recognition -->
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -36,6 +38,7 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
+        <!-- Main ATS Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -46,6 +49,12 @@
             </intent-filter>
 
         </activity>
+
+        <!-- ATS Call Screen -->
+        <activity
+            android:name=".ATSCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
 
         <!-- Floating Orb Service -->
         <service
@@ -73,7 +82,7 @@
 
             <meta-data
                 android:name="android.telecom.IN_CALL_SERVICE_UI"
-                android:value="false" />
+                android:value="true" />
 
             <meta-data
                 android:name="android.telecom.IN_CALL_SERVICE_RINGING"
