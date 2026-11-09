@@ -22,6 +22,13 @@
     <uses-permission
         android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Telecom / Call Management -->
+    <uses-permission
+        android:name="android.permission.READ_PHONE_STATE" />
+
+    <uses-permission
+        android:name="android.permission.ANSWER_PHONE_CALLS" />
+
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
@@ -40,6 +47,7 @@
 
         </activity>
 
+        <!-- Floating Orb Service -->
         <service
             android:name=".TacticalOrbService"
             android:enabled="true"
@@ -49,6 +57,27 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-visible floating tactical HUD overlay" />
+
+        </service>
+
+        <!-- ATS Telecom InCallService -->
+        <service
+            android:name=".ATSInCallService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_INCALL_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.telecom.InCallService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_UI"
+                android:value="false" />
+
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_RINGING"
+                android:value="false" />
 
         </service>
 
