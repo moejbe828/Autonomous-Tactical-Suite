@@ -9,6 +9,8 @@ android {
     namespace = "com.ats.sentinel"
     compileSdk = 35
 
+    ndkVersion = "27.2.12479018"
+
     defaultConfig {
         applicationId = "com.ats.sentinel"
 
@@ -20,6 +22,13 @@ android {
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf(
+                "arm64-v8a",
+                "armeabi-v7a"
+            )
+        }
     }
 
     buildTypes {
@@ -52,6 +61,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     packaging {
