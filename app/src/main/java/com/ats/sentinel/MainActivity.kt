@@ -165,11 +165,6 @@ fun ATSApp(
 
                 DeviceMonitorCard(snapshotState.value)
 
-                // JNI TEST CARD
-                Spacer(modifier = Modifier.height(16.dp))
-
-                NativeRuntimeTestCard()
-
                 Spacer(modifier = Modifier.height(22.dp))
 
                 OrbControlCard(
