@@ -165,8 +165,8 @@ class TacticalOrbService : Service() {
         )
 
         val params = WindowManager.LayoutParams(
-            dp(88),
-            dp(88),
+            dp(72),
+            dp(72),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
