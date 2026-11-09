@@ -37,11 +37,13 @@ jobs:
           yes | sdkmanager --licenses
           set -o pipefail
 
-      - name: Install Android SDK 35
+      - name: Install Android SDK 35 and NDK
         run: |
           sdkmanager \
             "platforms;android-35" \
-            "build-tools;35.0.0"
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
