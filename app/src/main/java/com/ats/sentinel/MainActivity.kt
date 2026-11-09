@@ -165,6 +165,11 @@ fun ATSApp(
 
                 DeviceMonitorCard(snapshotState.value)
 
+                // JNI TEST CARD
+                Spacer(modifier = Modifier.height(16.dp))
+
+                NativeRuntimeTestCard()
+
                 Spacer(modifier = Modifier.height(22.dp))
 
                 OrbControlCard(
@@ -412,7 +417,7 @@ private fun DeviceMonitorCard(snapshot: DeviceSnapshot) {
 
                 Text(
                     text = if (snapshot.batteryPercent >= 0)
-                    "${snapshot.batteryPercent}%"
+                        "${snapshot.batteryPercent}%"
                     else "N/A",
                     color = Green,
                     fontSize = 13.sp,
