@@ -16,13 +16,18 @@ import android.graphics.PixelFormat
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
+import android.widget.Toast
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -43,10 +48,29 @@ class TacticalOrbService : Service() {
     private var holoView: HoloGridView? = null
     private var added = false
 
+    private val handler = Handler(Looper.getMainLooper())
+
     private var dragX = 0
     private var dragY = 0
     private var touchX = 0f
     private var touchY = 0f
+
+    private var isDragging = false
+    private var isLongPress = false
+
+    private val touchSlop by lazy {
+        ViewConfiguration.get(this).scaledTouchSlop
+    }
+
+    private val longPressRunnable = Runnable {
+        isLongPress = true
+
+        Toast.makeText(
+            this,
+            "ATS AI voice input will be enabled in the next phase",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
 
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
@@ -111,14 +135,14 @@ class TacticalOrbService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("ATS TACTICAL SENTINEL")
-            .setContentText("HOLO GRID is running")
+            .setContentText("ATS AI Orb is running")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
     }
 
     // -----------------------------------------
-    // MEDIUM CIRCULAR FLOATING ORB
+    // ATS AI FLOATING ORB
     // -----------------------------------------
 
     private fun showOrb() {
@@ -141,8 +165,8 @@ class TacticalOrbService : Service() {
         )
 
         val params = WindowManager.LayoutParams(
-            dp(112),
-            dp(112),
+            dp(88),
+            dp(88),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -154,14 +178,20 @@ class TacticalOrbService : Service() {
             y = dp(130)
         }
 
-        // Drag the orb across the screen
+        // -------------------------------------
+        // TOUCH, DRAG AND LONG PRESS
+        // -------------------------------------
 
-        val dragListener =
+        val touchListener =
             View.OnTouchListener { _, event ->
 
                 when (event.action) {
 
                     MotionEvent.ACTION_DOWN -> {
+
+                        handler.removeCallbacks(
+                            longPressRunnable
+                        )
 
                         dragX = params.x
                         dragY = params.y
@@ -169,36 +199,80 @@ class TacticalOrbService : Service() {
                         touchX = event.rawX
                         touchY = event.rawY
 
+                        isDragging = false
+                        isLongPress = false
+
+                        handler.postDelayed(
+                            longPressRunnable,
+                            ViewConfiguration.getLongPressTimeout().toLong()
+                        )
+
                         true
                     }
 
                     MotionEvent.ACTION_MOVE -> {
 
-                        params.x = dragX +
-                            (event.rawX - touchX).toInt()
+                        val deltaX = event.rawX - touchX
+                        val deltaY = event.rawY - touchY
 
-                        params.y = dragY +
-                            (event.rawY - touchY).toInt()
+                        if (
+                            abs(deltaX) > touchSlop ||
+                            abs(deltaY) > touchSlop
+                        ) {
+                            isDragging = true
 
-                        try {
-                            windowManager.updateViewLayout(
-                                container,
-                                params
+                            handler.removeCallbacks(
+                                longPressRunnable
                             )
-                        } catch (_: Exception) {
+                        }
+
+                        if (isDragging) {
+
+                            params.x = dragX + deltaX.toInt()
+                            params.y = dragY + deltaY.toInt()
+
+                            try {
+                                windowManager.updateViewLayout(
+                                    container,
+                                    params
+                                )
+                            } catch (_: Exception) {
+                            }
                         }
 
                         true
                     }
 
-                    MotionEvent.ACTION_UP,
-                    MotionEvent.ACTION_CANCEL -> true
+                    MotionEvent.ACTION_UP -> {
+
+                        handler.removeCallbacks(
+                            longPressRunnable
+                        )
+
+                        if (!isDragging && !isLongPress) {
+                            openATS()
+                        }
+
+                        true
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> {
+
+                        handler.removeCallbacks(
+                            longPressRunnable
+                        )
+
+                        isDragging = false
+                        isLongPress = false
+
+                        true
+                    }
 
                     else -> false
                 }
             }
 
-        holo.setOnTouchListener(dragListener)
+        holo.setOnTouchListener(touchListener)
 
         try {
 
@@ -217,10 +291,41 @@ class TacticalOrbService : Service() {
     }
 
     // -----------------------------------------
+    // OPEN ATS APPLICATION
+    // -----------------------------------------
+
+    private fun openATS() {
+
+        try {
+
+            val intent = Intent(
+                this,
+                MainActivity::class.java
+            ).apply {
+                flags =
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+
+            startActivity(intent)
+
+        } catch (_: Exception) {
+
+            Toast.makeText(
+                this,
+                "Unable to open ATS",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    // -----------------------------------------
     // CLEANUP
     // -----------------------------------------
 
     override fun onDestroy() {
+
+        handler.removeCallbacksAndMessages(null)
 
         holoView?.stopAnimation()
 
