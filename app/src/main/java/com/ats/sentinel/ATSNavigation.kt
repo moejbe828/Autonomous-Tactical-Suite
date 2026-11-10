@@ -38,7 +38,11 @@ fun ATSNavigationApp(
     openDialerPage: Boolean,
     onPlaceCall: (String) -> Unit,
     onStartOrb: () -> Unit,
-    onStopOrb: () -> Unit
+    onStopOrb: () -> Unit,
+    contactsPermissionGranted: Boolean = false,
+    callLogPermissionGranted: Boolean = false,
+    onRequestContactsPermission: () -> Unit = {},
+    onRequestCallLogPermission: () -> Unit = {}
 ) {
     var currentPage by remember {
         mutableStateOf(
@@ -195,11 +199,17 @@ fun ATSNavigationApp(
                 }
 
                 ATSPage.CONTACTS -> {
-                    ContactsScreen()
+                    ContactsScreen(
+                        isPermissionGranted = contactsPermissionGranted,
+                        onRequestPermission = onRequestContactsPermission
+                    )
                 }
 
                 ATSPage.HISTORY -> {
-                    HistoryScreen()
+                    HistoryScreen(
+                        isPermissionGranted = callLogPermissionGranted,
+                        onRequestPermission = onRequestCallLogPermission
+                    )
                 }
             }
         }
@@ -557,7 +567,10 @@ private fun DialerScreen(
 }
 
 @Composable
-private fun ContactsScreen() {
+private fun ContactsScreen(
+    isPermissionGranted: Boolean,
+    onRequestPermission: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -573,15 +586,30 @@ private fun ContactsScreen() {
 
         StatusPanel(
             "CONTACT DIRECTORY",
-            "NOT CONNECTED",
-            "Contact permission and device directory integration are next",
-            ATSMuted
+            if (isPermissionGranted) "PERMISSION GRANTED" else "ACCESS REQUIRED",
+            if (isPermissionGranted)
+                "Device access enabled. Contact data integration is next."
+            else
+                "ATS needs your permission to read contacts stored on this device.",
+            if (isPermissionGranted) ATSGreen else ATSMuted
         )
+
+        if (!isPermissionGranted) {
+            Button(
+                onClick = onRequestPermission,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("GRANT CONTACTS ACCESS")
+            }
+        }
     }
 }
 
 @Composable
-private fun HistoryScreen() {
+private fun HistoryScreen(
+    isPermissionGranted: Boolean,
+    onRequestPermission: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -597,10 +625,22 @@ private fun HistoryScreen() {
 
         StatusPanel(
             "CALL LOG",
-            "NOT CONNECTED",
-            "Call history permission and data integration are pending",
-            ATSMuted
+            if (isPermissionGranted) "PERMISSION GRANTED" else "ACCESS REQUIRED",
+            if (isPermissionGranted)
+                "Device access enabled. Call history integration is next."
+            else
+                "ATS needs your permission to read the device call history.",
+            if (isPermissionGranted) ATSGreen else ATSMuted
         )
+
+        if (!isPermissionGranted) {
+            Button(
+                onClick = onRequestPermission,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("GRANT CALL LOG ACCESS")
+            }
+        }
     }
 }
 
