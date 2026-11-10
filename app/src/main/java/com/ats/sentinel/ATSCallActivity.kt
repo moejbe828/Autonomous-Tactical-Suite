@@ -1,8 +1,9 @@
 
 package com.ats.sentinel
 
-import android.app.Activity
 import android.os.Bundle
+import android.os.PowerManager
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -28,10 +29,6 @@ private val CallMuted = Color(0xFF7895B5)
 private val CallGreen = Color(0xFF25C987)
 private val CallRed = Color(0xFFE5485B)
 
-/**
- * Shared state between ATSInCallService and ATSCallActivity.
- * Both run inside the same ATS application process.
- */
 object ATSCallSession {
     var currentCall by mutableStateOf<Call?>(null)
     var callState by mutableIntStateOf(Call.STATE_NEW)
@@ -102,8 +99,13 @@ object ATSCallSession {
 
 class ATSCallActivity : ComponentActivity() {
 
+    private var proximityWakeLock: PowerManager.WakeLock? = null
+    private var proximityRequested = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        initializeProximityWakeLock()
 
         setContent {
             ATSCallScreen(
@@ -112,9 +114,122 @@ class ATSCallActivity : ComponentActivity() {
                 onEnd = { ATSCallSession.end() },
                 onMute = { ATSCallSession.toggleMute() },
                 onSpeaker = { ATSCallSession.toggleSpeaker() },
-                onClose = { finish() }
+                onClose = { finish() },
+                onProximityChanged = { enabled ->
+                    setProximityEnabled(enabled)
+                }
             )
         }
+    }
+
+    private fun initializeProximityWakeLock() {
+        try {
+            val powerManager =
+                getSystemService(POWER_SERVICE) as PowerManager
+
+            val sensorManager =
+                getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager
+
+            val proximitySensor = sensorManager.getDefaultSensor(
+                android.hardware.Sensor.TYPE_PROXIMITY
+            )
+
+            if (proximitySensor == null) {
+                Log.w("ATS_PROXIMITY", "Proximity sensor not available")
+                return
+            }
+
+            val wakeLockLevel =
+                PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK
+
+            if (!powerManager.isWakeLockLevelSupported(wakeLockLevel)) {
+                Log.w("ATS_PROXIMITY", "Proximity wake lock not supported")
+                return
+            }
+
+            proximityWakeLock = powerManager.newWakeLock(
+                wakeLockLevel,
+                "ATS::ProximityWakeLock"
+            )
+
+            proximityWakeLock?.setReferenceCounted(false)
+
+            Log.i("ATS_PROXIMITY", "Proximity sensor initialized")
+
+        } catch (e: Exception) {
+            Log.e(
+                "ATS_PROXIMITY",
+                "Initialization failed",
+                e
+            )
+        }
+    }
+
+    private fun setProximityEnabled(enabled: Boolean) {
+        proximityRequested = enabled
+
+        if (!lifecycle.currentState.isAtLeast(
+                androidx.lifecycle.Lifecycle.State.RESUMED
+            )
+        ) {
+            return
+        }
+
+        try {
+            if (enabled) {
+                val wakeLock = proximityWakeLock ?: return
+
+                if (!wakeLock.isHeld) {
+                    wakeLock.acquire()
+                    Log.i("ATS_PROXIMITY", "Proximity enabled")
+                }
+            } else {
+                releaseProximityWakeLock()
+            }
+        } catch (e: Exception) {
+            Log.e(
+                "ATS_PROXIMITY",
+                "Unable to change proximity state",
+                e
+            )
+        }
+    }
+
+    private fun releaseProximityWakeLock() {
+        try {
+            proximityWakeLock?.let { wakeLock ->
+                if (wakeLock.isHeld) {
+                    wakeLock.release()
+                    Log.i("ATS_PROXIMITY", "Proximity released")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(
+                "ATS_PROXIMITY",
+                "Wake lock release failed",
+                e
+            )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        if (proximityRequested) {
+            setProximityEnabled(true)
+        }
+    }
+
+    override fun onPause() {
+        releaseProximityWakeLock()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        proximityRequested = false
+        releaseProximityWakeLock()
+        proximityWakeLock = null
+        super.onDestroy()
     }
 }
 
@@ -125,7 +240,8 @@ private fun ATSCallScreen(
     onEnd: () -> Unit,
     onMute: () -> Unit,
     onSpeaker: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onProximityChanged: (Boolean) -> Unit
 ) {
     val state = ATSCallSession.callState
     val name = ATSCallSession.callerName
@@ -135,15 +251,27 @@ private fun ATSCallScreen(
 
     val isRinging = state == Call.STATE_RINGING
     val isActive = state == Call.STATE_ACTIVE
+    val isHolding = state == Call.STATE_HOLDING
+
     val isConnecting =
         state == Call.STATE_CONNECTING ||
         state == Call.STATE_DIALING
+
+    val proximityShouldBeActive = isActive || isHolding
+
+    DisposableEffect(proximityShouldBeActive) {
+        onProximityChanged(proximityShouldBeActive)
+
+        onDispose {
+            onProximityChanged(false)
+        }
+    }
 
     val status = when {
         isRinging -> "INCOMING CALL"
         isActive -> "CALL CONNECTED"
         isConnecting -> "CONNECTING"
-        state == Call.STATE_HOLDING -> "CALL ON HOLD"
+        isHolding -> "CALL ON HOLD"
         state == Call.STATE_DISCONNECTED -> "CALL ENDED"
         else -> "CALL STATUS"
     }
@@ -225,7 +353,7 @@ private fun ATSCallScreen(
                 verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
 
-                if (isActive || state == Call.STATE_HOLDING) {
+                if (isActive || isHolding) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -248,6 +376,7 @@ private fun ATSCallScreen(
                         color = CallRed,
                         onClick = onEnd
                     )
+
                 } else if (isRinging) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -266,12 +395,14 @@ private fun ATSCallScreen(
                             onClick = onAnswer
                         )
                     }
+
                 } else if (isConnecting) {
                     CallActionButton(
                         label = "CANCEL CALL",
                         color = CallRed,
                         onClick = onEnd
                     )
+
                 } else {
                     Button(
                         onClick = onClose,
