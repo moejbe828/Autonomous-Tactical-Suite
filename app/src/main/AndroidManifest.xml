@@ -38,6 +38,13 @@
     <uses-permission
         android:name="android.permission.CALL_PHONE" />
 
+    <!-- Contacts and Call History -->
+    <uses-permission
+        android:name="android.permission.READ_CONTACTS" />
+
+    <uses-permission
+        android:name="android.permission.READ_CALL_LOG" />
+
     <!-- Proximity Sensor / Screen Control -->
     <uses-permission
         android:name="android.permission.WAKE_LOCK" />
