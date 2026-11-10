@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.telecom.Call
+import android.telecom.CallAudioState
 
 private val CallBackground = Color(0xFF050B16)
 private val CallSurface = Color(0xFF101D30)
@@ -35,9 +36,16 @@ object ATSCallSession {
 
     var currentCall by mutableStateOf<Call?>(null)
     var callState by mutableIntStateOf(Call.STATE_NEW)
+
     var callerName by mutableStateOf("UNKNOWN CALLER")
     var callerNumber by mutableStateOf("PRIVATE / UNAVAILABLE")
+
     var isMuted by mutableStateOf(false)
+
+    // Actual Android call audio state.
+    var audioRoute by mutableIntStateOf(0)
+    var supportedAudioRoutes by mutableIntStateOf(0)
+
     var isSpeakerOn by mutableStateOf(false)
 
     var service: ATSInCallService? = null
@@ -54,8 +62,12 @@ object ATSCallSession {
             callState = Call.STATE_DISCONNECTED
             callerName = "NO ACTIVE CALL"
             callerNumber = "—"
+
             isMuted = false
             isSpeakerOn = false
+            audioRoute = 0
+            supportedAudioRoutes = 0
+
             return
         }
 
@@ -70,6 +82,39 @@ object ATSCallSession {
 
         callerNumber = number?.takeIf { it.isNotBlank() }
             ?: "PRIVATE / UNAVAILABLE"
+    }
+
+    fun updateAudioState(route: Int, supportedRoutes: Int) {
+        audioRoute = route
+        supportedAudioRoutes = supportedRoutes
+
+        isSpeakerOn = route == CallAudioState.ROUTE_SPEAKER
+    }
+
+    fun isRouteSupported(route: Int): Boolean {
+        return (supportedAudioRoutes and route) != 0
+    }
+
+    fun selectAudioRoute(route: Int) {
+        if (!isRouteSupported(route)) {
+            Log.w("ATS_AUDIO", "Requested audio route is unavailable")
+            return
+        }
+
+        try {
+            service?.setAudioRoute(route)
+
+            Log.i(
+                "ATS_AUDIO",
+                "Audio route requested: $route"
+            )
+        } catch (error: Exception) {
+            Log.e(
+                "ATS_AUDIO",
+                "Unable to change audio route",
+                error
+            )
+        }
     }
 
     fun answer() {
@@ -93,20 +138,6 @@ object ATSCallSession {
         isMuted = next
     }
 
-    fun toggleSpeaker() {
-        val next = !isSpeakerOn
-
-        service?.setAudioRoute(
-            if (next) {
-                android.telecom.CallAudioState.ROUTE_SPEAKER
-            } else {
-                android.telecom.CallAudioState.ROUTE_EARPIECE
-            }
-        )
-
-        isSpeakerOn = next
-    }
-
     // HOLD / RESUME
     fun toggleHold() {
         val call = currentCall ?: return
@@ -117,19 +148,13 @@ object ATSCallSession {
                     stopPendingDtmf()
                     call.hold()
 
-                    Log.i(
-                        "ATS_CALL",
-                        "Hold requested"
-                    )
+                    Log.i("ATS_CALL", "Hold requested")
                 }
 
                 Call.STATE_HOLDING -> {
                     call.unhold()
 
-                    Log.i(
-                        "ATS_CALL",
-                        "Resume requested"
-                    )
+                    Log.i("ATS_CALL", "Resume requested")
                 }
             }
         } catch (error: Exception) {
@@ -174,10 +199,7 @@ object ATSCallSession {
                 150L
             )
 
-            Log.i(
-                "ATS_DTMF",
-                "DTMF digit sent"
-            )
+            Log.i("ATS_DTMF", "DTMF digit sent")
 
         } catch (error: Exception) {
             Log.e(
@@ -223,7 +245,9 @@ class ATSCallActivity : ComponentActivity() {
                 onReject = { ATSCallSession.reject() },
                 onEnd = { ATSCallSession.end() },
                 onMute = { ATSCallSession.toggleMute() },
-                onSpeaker = { ATSCallSession.toggleSpeaker() },
+                onAudioRoute = { route ->
+                    ATSCallSession.selectAudioRoute(route)
+                },
                 onClose = { finish() },
                 onProximityChanged = { enabled ->
                     setProximityEnabled(enabled)
@@ -367,7 +391,7 @@ private fun ATSCallScreen(
     onReject: () -> Unit,
     onEnd: () -> Unit,
     onMute: () -> Unit,
-    onSpeaker: () -> Unit,
+    onAudioRoute: (Int) -> Unit,
     onClose: () -> Unit,
     onProximityChanged: (Boolean) -> Unit
 ) {
@@ -375,7 +399,9 @@ private fun ATSCallScreen(
     val name = ATSCallSession.callerName
     val number = ATSCallSession.callerNumber
     val muted = ATSCallSession.isMuted
-    val speaker = ATSCallSession.isSpeakerOn
+
+    val audioRoute = ATSCallSession.audioRoute
+    val supportedRoutes = ATSCallSession.supportedAudioRoutes
 
     var keypadVisible by remember {
         mutableStateOf(false)
@@ -492,7 +518,61 @@ private fun ATSCallScreen(
 
                 if (isActive || isHolding) {
 
-                    // First row: MUTE and SPEAKER
+                    // Audio route selector.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        if (
+                            (supportedRoutes and
+                                CallAudioState.ROUTE_EARPIECE) != 0
+                        ) {
+                            CallOption(
+                                label = "EARPIECE",
+                                active = audioRoute ==
+                                    CallAudioState.ROUTE_EARPIECE,
+                                onClick = {
+                                    onAudioRoute(
+                                        CallAudioState.ROUTE_EARPIECE
+                                    )
+                                }
+                            )
+                        }
+
+                        if (
+                            (supportedRoutes and
+                                CallAudioState.ROUTE_SPEAKER) != 0
+                        ) {
+                            CallOption(
+                                label = "SPEAKER",
+                                active = audioRoute ==
+                                    CallAudioState.ROUTE_SPEAKER,
+                                onClick = {
+                                    onAudioRoute(
+                                        CallAudioState.ROUTE_SPEAKER
+                                    )
+                                }
+                            )
+                        }
+
+                        if (
+                            (supportedRoutes and
+                                CallAudioState.ROUTE_BLUETOOTH) != 0
+                        ) {
+                            CallOption(
+                                label = "BLUETOOTH",
+                                active = audioRoute ==
+                                    CallAudioState.ROUTE_BLUETOOTH,
+                                onClick = {
+                                    onAudioRoute(
+                                        CallAudioState.ROUTE_BLUETOOTH
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    // MUTE and KEYPAD controls.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -503,18 +583,6 @@ private fun ATSCallScreen(
                             onClick = onMute
                         )
 
-                        CallOption(
-                            label = if (speaker) "SPEAKER ON" else "SPEAKER",
-                            active = speaker,
-                            onClick = onSpeaker
-                        )
-                    }
-
-                    // Second row: KEYPAD and HOLD / RESUME
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
                         CallOption(
                             label = if (keypadVisible) "HIDE" else "KEYPAD",
                             active = keypadVisible,
@@ -545,7 +613,6 @@ private fun ATSCallScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-
                             Text(
                                 text = if (dtmfDisplay.isEmpty()) {
                                     "ENTER DTMF DIGITS"
