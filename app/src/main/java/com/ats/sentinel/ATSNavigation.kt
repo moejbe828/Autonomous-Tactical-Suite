@@ -34,15 +34,27 @@ private enum class ATSPage {
 @Composable
 fun ATSNavigationApp(
     isOrbRunning: Boolean,
+    initialDialNumber: String,
+    openDialerPage: Boolean,
+    onPlaceCall: (String) -> Unit,
     onStartOrb: () -> Unit,
     onStopOrb: () -> Unit
 ) {
     var currentPage by remember {
-        mutableStateOf(ATSPage.COMMAND)
+        mutableStateOf(
+            if (openDialerPage) ATSPage.DIALER
+            else ATSPage.COMMAND
+        )
     }
 
     var menuExpanded by remember {
         mutableStateOf(false)
+    }
+
+    LaunchedEffect(openDialerPage, initialDialNumber) {
+        if (openDialerPage) {
+            currentPage = ATSPage.DIALER
+        }
     }
 
     MaterialTheme(
@@ -176,7 +188,10 @@ fun ATSNavigationApp(
                 }
 
                 ATSPage.DIALER -> {
-                    DialerScreen()
+                    DialerScreen(
+                        initialNumber = initialDialNumber,
+                        onPlaceCall = onPlaceCall
+                    )
                 }
 
                 ATSPage.CONTACTS -> {
@@ -452,9 +467,12 @@ private fun IntelligenceScreen() {
 }
 
 @Composable
-private fun DialerScreen() {
-    var number by remember {
-        mutableStateOf("")
+private fun DialerScreen(
+    initialNumber: String,
+    onPlaceCall: (String) -> Unit
+) {
+    var number by remember(initialNumber) {
+        mutableStateOf(initialNumber)
     }
 
     val keys = listOf(
@@ -508,26 +526,30 @@ private fun DialerScreen() {
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
                 onClick = {
                     number = number.dropLast(1)
-                }
+                },
+                enabled = number.isNotEmpty()
             ) {
                 Text("DELETE")
             }
 
             Button(
-                onClick = {},
-                enabled = false
+                onClick = {
+                    onPlaceCall(number)
+                },
+                enabled = number.any { it.isDigit() }
             ) {
-                Text("CALL • NEXT PHASE")
+                Text("CALL")
             }
         }
 
         Text(
-            text = "Call placement will be connected after Telecom role and permissions are tested.",
+            text = "ATS will request default dialer status and call permission before placing a call.",
             color = ATSMuted,
             fontSize = 10.sp
         )
