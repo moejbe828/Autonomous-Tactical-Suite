@@ -2,6 +2,7 @@
 package com.ats.sentinel
 
 import android.content.Intent
+import android.os.PowerManager
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.InCallService
@@ -11,6 +12,7 @@ class ATSInCallService : InCallService() {
 
     companion object {
         private const val TAG = "ATSInCallService"
+        private const val SCREEN_WAKE_DURATION = 10_000L
     }
 
     private var activeCall: Call? = null
@@ -31,6 +33,10 @@ class ATSInCallService : InCallService() {
                 if (state == Call.STATE_ACTIVE) {
                     ensureDefaultAudioRoute()
                     synchronizeAudioState()
+                }
+
+                if (state == Call.STATE_DISCONNECTED) {
+                    Log.i(TAG, "Call disconnected")
                 }
             }
         }
@@ -73,18 +79,74 @@ class ATSInCallService : InCallService() {
         ensureDefaultAudioRoute()
         synchronizeAudioState()
 
-        val intent = Intent(
-            this,
-            ATSCallActivity::class.java
-        ).apply {
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-            )
+        if (call.state == Call.STATE_RINGING) {
+            wakeScreenForIncomingCall()
         }
 
+        openCallActivity()
+    }
+
+    /**
+     * Request a temporary screen wake when an incoming
+     * call arrives while the display is off.
+     *
+     * The timeout prevents an indefinite wake lock.
+     */
+    private fun wakeScreenForIncomingCall() {
         try {
+            val powerManager =
+                getSystemService(POWER_SERVICE) as PowerManager
+
+            @Suppress("DEPRECATION")
+            val wakeLock = powerManager.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "ATS::IncomingCallWakeLock"
+            )
+
+            wakeLock.setReferenceCounted(false)
+            wakeLock.acquire(SCREEN_WAKE_DURATION)
+
+            Log.i(
+                TAG,
+                "Incoming call screen wake requested"
+            )
+
+        } catch (error: Exception) {
+            Log.e(
+                TAG,
+                "Unable to wake screen for incoming call",
+                error
+            )
+        }
+    }
+
+    /**
+     * Open the ATS call interface.
+     *
+     * ATSCallActivity must also use showWhenLocked
+     * and turnScreenOn in its manifest/activity window.
+     */
+    private fun openCallActivity() {
+        try {
+            val intent = Intent(
+                this,
+                ATSCallActivity::class.java
+            ).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+            }
+
             startActivity(intent)
+
+            Log.i(
+                TAG,
+                "ATS call interface launch requested"
+            )
+
         } catch (error: Exception) {
             Log.e(
                 TAG,
@@ -160,7 +222,7 @@ class ATSInCallService : InCallService() {
 
             val externalHeadsetActive =
                 audioState.route == CallAudioState.ROUTE_BLUETOOTH ||
-                audioState.route == CallAudioState.ROUTE_WIRED_HEADSET
+                    audioState.route == CallAudioState.ROUTE_WIRED_HEADSET
 
             val speakerCurrentlyActive =
                 audioState.route == CallAudioState.ROUTE_SPEAKER
