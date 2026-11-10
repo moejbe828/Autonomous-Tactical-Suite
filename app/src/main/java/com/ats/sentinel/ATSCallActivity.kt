@@ -107,6 +107,40 @@ object ATSCallSession {
         isSpeakerOn = next
     }
 
+    // HOLD / RESUME
+    fun toggleHold() {
+        val call = currentCall ?: return
+
+        try {
+            when (call.state) {
+                Call.STATE_ACTIVE -> {
+                    stopPendingDtmf()
+                    call.hold()
+
+                    Log.i(
+                        "ATS_CALL",
+                        "Hold requested"
+                    )
+                }
+
+                Call.STATE_HOLDING -> {
+                    call.unhold()
+
+                    Log.i(
+                        "ATS_CALL",
+                        "Resume requested"
+                    )
+                }
+            }
+        } catch (error: Exception) {
+            Log.e(
+                "ATS_CALL",
+                "Unable to change hold state",
+                error
+            )
+        }
+    }
+
     fun sendDtmfTone(digit: Char) {
         if (digit !in "0123456789*#") return
 
@@ -458,6 +492,7 @@ private fun ATSCallScreen(
 
                 if (isActive || isHolding) {
 
+                    // First row: MUTE and SPEAKER
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -473,13 +508,27 @@ private fun ATSCallScreen(
                             active = speaker,
                             onClick = onSpeaker
                         )
+                    }
 
+                    // Second row: KEYPAD and HOLD / RESUME
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
                         CallOption(
                             label = if (keypadVisible) "HIDE" else "KEYPAD",
                             active = keypadVisible,
                             onClick = {
                                 keypadVisible = !keypadVisible
                                 dtmfDisplay = ""
+                            }
+                        )
+
+                        CallOption(
+                            label = if (isHolding) "RESUME" else "HOLD",
+                            active = isHolding,
+                            onClick = {
+                                ATSCallSession.toggleHold()
                             }
                         )
                     }
