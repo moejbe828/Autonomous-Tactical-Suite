@@ -26,6 +26,10 @@ class MainActivity : ComponentActivity() {
     private val initialDialNumber = mutableStateOf("")
     private val openDialerPage = mutableStateOf(false)
 
+    // Contacts and call-log permission states
+    private val contactsPermissionGranted = mutableStateOf(false)
+    private val callLogPermissionGranted = mutableStateOf(false)
+
     // Overlay permission
     private val overlayPermissionLauncher =
         registerForActivityResult(
@@ -49,7 +53,6 @@ class MainActivity : ComponentActivity() {
                 continuePendingCall()
             } else {
                 pendingCallNumber = null
-
                 showMessage(
                     "ATS was not selected as the default dialer."
                 )
@@ -66,16 +69,46 @@ class MainActivity : ComponentActivity() {
                 placePendingCall()
             } else {
                 pendingCallNumber = null
-
                 showMessage(
                     "Call permission was denied. No call was placed."
                 )
             }
         }
 
+    // Contacts runtime permission
+    private val contactsPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+
+            contactsPermissionGranted.value = granted
+
+            if (granted) {
+                showMessage("Contacts permission granted.")
+            } else {
+                showMessage("Contacts permission was denied.")
+            }
+        }
+
+    // Call history runtime permission
+    private val callLogPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+
+            callLogPermissionGranted.value = granted
+
+            if (granted) {
+                showMessage("Call history permission granted.")
+            } else {
+                showMessage("Call history permission was denied.")
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        refreshDataPermissions()
         handleDialIntent(intent)
 
         setContent {
@@ -98,6 +131,50 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
+    }
+
+    // Refresh permission status from Android
+    private fun refreshDataPermissions() {
+
+        contactsPermissionGranted.value =
+            checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
+                PackageManager.PERMISSION_GRANTED
+
+        callLogPermissionGranted.value =
+            checkSelfPermission(Manifest.permission.READ_CALL_LOG) ==
+                PackageManager.PERMISSION_GRANTED
+    }
+
+    // Request contacts access when needed
+    fun requestContactsPermission() {
+
+        if (
+            checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            contactsPermissionGranted.value = true
+            return
+        }
+
+        contactsPermissionLauncher.launch(
+            Manifest.permission.READ_CONTACTS
+        )
+    }
+
+    // Request call history access when needed
+    fun requestCallLogPermission() {
+
+        if (
+            checkSelfPermission(Manifest.permission.READ_CALL_LOG) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            callLogPermissionGranted.value = true
+            return
+        }
+
+        callLogPermissionLauncher.launch(
+            Manifest.permission.READ_CALL_LOG
+        )
     }
 
     // Handle calls opened through ACTION_DIAL
@@ -151,7 +228,8 @@ class MainActivity : ComponentActivity() {
         val roleManager =
             getSystemService(RoleManager::class.java)
 
-        if (roleManager == null ||
+        if (
+            roleManager == null ||
             !roleManager.isRoleAvailable(RoleManager.ROLE_DIALER)
         ) {
             pendingCallNumber = null
@@ -343,9 +421,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-
-        if (Settings.canDrawOverlays(this)) {
-            // Overlay permission is available.
-        }
+        refreshDataPermissions()
     }
 }
