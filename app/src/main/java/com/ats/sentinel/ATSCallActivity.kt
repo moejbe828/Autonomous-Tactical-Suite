@@ -5,7 +5,9 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -42,10 +44,8 @@ object ATSCallSession {
 
     var isMuted by mutableStateOf(false)
 
-    // Actual Android call audio state.
     var audioRoute by mutableIntStateOf(0)
     var supportedAudioRoutes by mutableIntStateOf(0)
-
     var isSpeakerOn by mutableStateOf(false)
 
     var service: ATSInCallService? = null
@@ -58,16 +58,13 @@ object ATSCallSession {
 
         if (call == null) {
             stopPendingDtmf()
-
             callState = Call.STATE_DISCONNECTED
             callerName = "NO ACTIVE CALL"
             callerNumber = "—"
-
             isMuted = false
             isSpeakerOn = false
             audioRoute = 0
             supportedAudioRoutes = 0
-
             return
         }
 
@@ -87,7 +84,6 @@ object ATSCallSession {
     fun updateAudioState(route: Int, supportedRoutes: Int) {
         audioRoute = route
         supportedAudioRoutes = supportedRoutes
-
         isSpeakerOn = route == CallAudioState.ROUTE_SPEAKER
     }
 
@@ -103,17 +99,9 @@ object ATSCallSession {
 
         try {
             service?.setAudioRoute(route)
-
-            Log.i(
-                "ATS_AUDIO",
-                "Audio route requested: $route"
-            )
+            Log.i("ATS_AUDIO", "Audio route requested: $route")
         } catch (error: Exception) {
-            Log.e(
-                "ATS_AUDIO",
-                "Unable to change audio route",
-                error
-            )
+            Log.e("ATS_AUDIO", "Unable to change audio route", error)
         }
     }
 
@@ -138,7 +126,6 @@ object ATSCallSession {
         isMuted = next
     }
 
-    // HOLD / RESUME
     fun toggleHold() {
         val call = currentCall ?: return
 
@@ -147,22 +134,16 @@ object ATSCallSession {
                 Call.STATE_ACTIVE -> {
                     stopPendingDtmf()
                     call.hold()
-
                     Log.i("ATS_CALL", "Hold requested")
                 }
 
                 Call.STATE_HOLDING -> {
                     call.unhold()
-
                     Log.i("ATS_CALL", "Resume requested")
                 }
             }
         } catch (error: Exception) {
-            Log.e(
-                "ATS_CALL",
-                "Unable to change hold state",
-                error
-            )
+            Log.e("ATS_CALL", "Unable to change hold state", error)
         }
     }
 
@@ -170,43 +151,27 @@ object ATSCallSession {
         if (digit !in "0123456789*#") return
 
         val call = currentCall ?: return
-
         if (call.state != Call.STATE_ACTIVE) return
 
         try {
             stopPendingDtmf()
-
             call.playDtmfTone(digit)
 
             val stopAction = Runnable {
                 try {
                     call.stopDtmfTone()
                 } catch (error: Exception) {
-                    Log.e(
-                        "ATS_DTMF",
-                        "Unable to stop DTMF tone",
-                        error
-                    )
+                    Log.e("ATS_DTMF", "Unable to stop DTMF tone", error)
                 }
-
                 pendingDtmfStop = null
             }
 
             pendingDtmfStop = stopAction
-
-            dtmfHandler.postDelayed(
-                stopAction,
-                150L
-            )
+            dtmfHandler.postDelayed(stopAction, 150L)
 
             Log.i("ATS_DTMF", "DTMF digit sent")
-
         } catch (error: Exception) {
-            Log.e(
-                "ATS_DTMF",
-                "Unable to send DTMF digit",
-                error
-            )
+            Log.e("ATS_DTMF", "Unable to send DTMF digit", error)
         }
     }
 
@@ -220,11 +185,7 @@ object ATSCallSession {
         try {
             currentCall?.stopDtmfTone()
         } catch (error: Exception) {
-            Log.e(
-                "ATS_DTMF",
-                "Unable to stop active tone",
-                error
-            )
+            Log.e("ATS_DTMF", "Unable to stop active tone", error)
         }
     }
 }
@@ -237,6 +198,7 @@ class ATSCallActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        configureLockScreenDisplay()
         initializeProximityWakeLock()
 
         setContent {
@@ -256,6 +218,25 @@ class ATSCallActivity : ComponentActivity() {
         }
     }
 
+    private fun configureLockScreenDisplay() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+
+            Log.i("ATS_LOCKSCREEN", "Lock screen display configured")
+        } catch (error: Exception) {
+            Log.e("ATS_LOCKSCREEN", "Unable to configure lock screen", error)
+        }
+    }
+
     private fun initializeProximityWakeLock() {
         try {
             val powerManager =
@@ -269,10 +250,7 @@ class ATSCallActivity : ComponentActivity() {
             )
 
             if (proximitySensor == null) {
-                Log.w(
-                    "ATS_PROXIMITY",
-                    "Proximity sensor not available"
-                )
+                Log.w("ATS_PROXIMITY", "Proximity sensor not available")
                 return
             }
 
@@ -280,10 +258,7 @@ class ATSCallActivity : ComponentActivity() {
                 PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK
 
             if (!powerManager.isWakeLockLevelSupported(wakeLockLevel)) {
-                Log.w(
-                    "ATS_PROXIMITY",
-                    "Proximity wake lock not supported"
-                )
+                Log.w("ATS_PROXIMITY", "Proximity wake lock not supported")
                 return
             }
 
@@ -294,17 +269,9 @@ class ATSCallActivity : ComponentActivity() {
 
             proximityWakeLock?.setReferenceCounted(false)
 
-            Log.i(
-                "ATS_PROXIMITY",
-                "Proximity sensor initialized"
-            )
-
+            Log.i("ATS_PROXIMITY", "Proximity sensor initialized")
         } catch (error: Exception) {
-            Log.e(
-                "ATS_PROXIMITY",
-                "Initialization failed",
-                error
-            )
+            Log.e("ATS_PROXIMITY", "Initialization failed", error)
         }
     }
 
@@ -324,21 +291,13 @@ class ATSCallActivity : ComponentActivity() {
 
                 if (!wakeLock.isHeld) {
                     wakeLock.acquire()
-
-                    Log.i(
-                        "ATS_PROXIMITY",
-                        "Proximity enabled"
-                    )
+                    Log.i("ATS_PROXIMITY", "Proximity enabled")
                 }
             } else {
                 releaseProximityWakeLock()
             }
         } catch (error: Exception) {
-            Log.e(
-                "ATS_PROXIMITY",
-                "Unable to change proximity state",
-                error
-            )
+            Log.e("ATS_PROXIMITY", "Unable to change proximity state", error)
         }
     }
 
@@ -347,19 +306,11 @@ class ATSCallActivity : ComponentActivity() {
             proximityWakeLock?.let { wakeLock ->
                 if (wakeLock.isHeld) {
                     wakeLock.release()
-
-                    Log.i(
-                        "ATS_PROXIMITY",
-                        "Proximity released"
-                    )
+                    Log.i("ATS_PROXIMITY", "Proximity released")
                 }
             }
         } catch (error: Exception) {
-            Log.e(
-                "ATS_PROXIMITY",
-                "Wake lock release failed",
-                error
-            )
+            Log.e("ATS_PROXIMITY", "Wake lock release failed", error)
         }
     }
 
@@ -380,7 +331,6 @@ class ATSCallActivity : ComponentActivity() {
         proximityRequested = false
         releaseProximityWakeLock()
         proximityWakeLock = null
-
         super.onDestroy()
     }
 }
@@ -403,13 +353,8 @@ private fun ATSCallScreen(
     val audioRoute = ATSCallSession.audioRoute
     val supportedRoutes = ATSCallSession.supportedAudioRoutes
 
-    var keypadVisible by remember {
-        mutableStateOf(false)
-    }
-
-    var dtmfDisplay by remember {
-        mutableStateOf("")
-    }
+    var keypadVisible by remember { mutableStateOf(false) }
+    var dtmfDisplay by remember { mutableStateOf("") }
 
     val isRinging = state == Call.STATE_RINGING
     val isActive = state == Call.STATE_ACTIVE
@@ -419,15 +364,11 @@ private fun ATSCallScreen(
         state == Call.STATE_CONNECTING ||
         state == Call.STATE_DIALING
 
-    val proximityShouldBeActive =
-        isActive || isHolding
+    val proximityShouldBeActive = isActive || isHolding
 
     DisposableEffect(proximityShouldBeActive) {
         onProximityChanged(proximityShouldBeActive)
-
-        onDispose {
-            onProximityChanged(false)
-        }
+        onDispose { onProximityChanged(false) }
     }
 
     val status = when {
@@ -450,10 +391,7 @@ private fun ATSCallScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "ATS",
                     color = CallBlue,
@@ -515,64 +453,42 @@ private fun ATSCallScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-
                 if (isActive || isHolding) {
-
-                    // Audio route selector.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        if (
-                            (supportedRoutes and
-                                CallAudioState.ROUTE_EARPIECE) != 0
-                        ) {
+                        if ((supportedRoutes and CallAudioState.ROUTE_EARPIECE) != 0) {
                             CallOption(
                                 label = "EARPIECE",
-                                active = audioRoute ==
-                                    CallAudioState.ROUTE_EARPIECE,
+                                active = audioRoute == CallAudioState.ROUTE_EARPIECE,
                                 onClick = {
-                                    onAudioRoute(
-                                        CallAudioState.ROUTE_EARPIECE
-                                    )
+                                    onAudioRoute(CallAudioState.ROUTE_EARPIECE)
                                 }
                             )
                         }
 
-                        if (
-                            (supportedRoutes and
-                                CallAudioState.ROUTE_SPEAKER) != 0
-                        ) {
+                        if ((supportedRoutes and CallAudioState.ROUTE_SPEAKER) != 0) {
                             CallOption(
                                 label = "SPEAKER",
-                                active = audioRoute ==
-                                    CallAudioState.ROUTE_SPEAKER,
+                                active = audioRoute == CallAudioState.ROUTE_SPEAKER,
                                 onClick = {
-                                    onAudioRoute(
-                                        CallAudioState.ROUTE_SPEAKER
-                                    )
+                                    onAudioRoute(CallAudioState.ROUTE_SPEAKER)
                                 }
                             )
                         }
 
-                        if (
-                            (supportedRoutes and
-                                CallAudioState.ROUTE_BLUETOOTH) != 0
-                        ) {
+                        if ((supportedRoutes and CallAudioState.ROUTE_BLUETOOTH) != 0) {
                             CallOption(
                                 label = "BLUETOOTH",
-                                active = audioRoute ==
-                                    CallAudioState.ROUTE_BLUETOOTH,
+                                active = audioRoute == CallAudioState.ROUTE_BLUETOOTH,
                                 onClick = {
-                                    onAudioRoute(
-                                        CallAudioState.ROUTE_BLUETOOTH
-                                    )
+                                    onAudioRoute(CallAudioState.ROUTE_BLUETOOTH)
                                 }
                             )
                         }
                     }
 
-                    // MUTE and KEYPAD controls.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -595,9 +511,7 @@ private fun ATSCallScreen(
                         CallOption(
                             label = if (isHolding) "RESUME" else "HOLD",
                             active = isHolding,
-                            onClick = {
-                                ATSCallSession.toggleHold()
-                            }
+                            onClick = { ATSCallSession.toggleHold() }
                         )
                     }
 
@@ -605,10 +519,7 @@ private fun ATSCallScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(
-                                    CallSurface,
-                                    RoundedCornerShape(18.dp)
-                                )
+                                .background(CallSurface, RoundedCornerShape(18.dp))
                                 .padding(12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -641,7 +552,6 @@ private fun ATSCallScreen(
                                         Button(
                                             onClick = {
                                                 ATSCallSession.sendDtmfTone(digit)
-
                                                 dtmfDisplay =
                                                     (dtmfDisplay + digit).takeLast(16)
                                             },
@@ -679,9 +589,7 @@ private fun ATSCallScreen(
                         color = CallRed,
                         onClick = onEnd
                     )
-
                 } else if (isRinging) {
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -699,17 +607,13 @@ private fun ATSCallScreen(
                             onClick = onAnswer
                         )
                     }
-
                 } else if (isConnecting) {
-
                     CallActionButton(
                         label = "CANCEL CALL",
                         color = CallRed,
                         onClick = onEnd
                     )
-
                 } else {
-
                     Button(
                         onClick = onClose,
                         colors = ButtonDefaults.buttonColors(
