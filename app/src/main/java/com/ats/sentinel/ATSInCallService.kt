@@ -30,6 +30,7 @@ class ATSInCallService : InCallService() {
 
                 if (state == Call.STATE_ACTIVE) {
                     ensureDefaultAudioRoute()
+                    synchronizeAudioState()
                 }
             }
         }
@@ -52,6 +53,8 @@ class ATSInCallService : InCallService() {
         ATSCallSession.service = this
 
         Log.i(TAG, "ATS InCallService created")
+
+        synchronizeAudioState()
     }
 
     override fun onCallAdded(call: Call) {
@@ -68,6 +71,7 @@ class ATSInCallService : InCallService() {
         )
 
         ensureDefaultAudioRoute()
+        synchronizeAudioState()
 
         val intent = Intent(
             this,
@@ -90,14 +94,19 @@ class ATSInCallService : InCallService() {
         }
     }
 
+    /**
+     * Synchronize the actual Android audio route
+     * and supported routes with the ATS interface.
+     */
     override fun onCallAudioStateChanged(
         audioState: CallAudioState
     ) {
         super.onCallAudioStateChanged(audioState)
 
-        // Synchronize the actual Android audio state with ATS.
-        ATSCallSession.isSpeakerOn =
-            audioState.route == CallAudioState.ROUTE_SPEAKER
+        ATSCallSession.updateAudioState(
+            audioState.route,
+            audioState.supportedRouteMask
+        )
 
         Log.i(
             TAG,
@@ -106,13 +115,40 @@ class ATSInCallService : InCallService() {
 
         Log.i(
             TAG,
-            "Supported audio routes: ${audioState.supportedRouteMask}"
+            "Supported audio routes: ${getSupportedRoutes(audioState.supportedRouteMask)}"
         )
     }
 
     /**
+     * Read the current Android audio state.
+     */
+    private fun synchronizeAudioState() {
+        try {
+            val audioState = callAudioState ?: return
+
+            ATSCallSession.updateAudioState(
+                audioState.route,
+                audioState.supportedRouteMask
+            )
+
+            Log.i(
+                TAG,
+                "Audio state synchronized: ${getAudioRouteName(audioState.route)}"
+            )
+
+        } catch (error: Exception) {
+            Log.e(
+                TAG,
+                "Unable to synchronize audio state",
+                error
+            )
+        }
+    }
+
+    /**
      * Keep the earpiece as the default route when available.
-     * Do not override an already connected Bluetooth or wired headset.
+     * Do not override an already connected Bluetooth
+     * or wired headset.
      */
     private fun ensureDefaultAudioRoute() {
         try {
@@ -138,13 +174,12 @@ class ATSInCallService : InCallService() {
                     CallAudioState.ROUTE_EARPIECE
                 )
 
-                ATSCallSession.isSpeakerOn = false
-
                 Log.i(
                     TAG,
                     "Default audio route requested: EARPIECE"
                 )
             }
+
         } catch (error: Exception) {
             Log.e(
                 TAG,
@@ -186,6 +221,36 @@ class ATSInCallService : InCallService() {
             CallAudioState.ROUTE_WIRED_HEADSET -> "WIRED_HEADSET"
             else -> "UNKNOWN"
         }
+    }
+
+    private fun getSupportedRoutes(routes: Int): String {
+        val available = mutableListOf<String>()
+
+        if (
+            (routes and CallAudioState.ROUTE_EARPIECE) != 0
+        ) {
+            available.add("EARPIECE")
+        }
+
+        if (
+            (routes and CallAudioState.ROUTE_SPEAKER) != 0
+        ) {
+            available.add("SPEAKER")
+        }
+
+        if (
+            (routes and CallAudioState.ROUTE_BLUETOOTH) != 0
+        ) {
+            available.add("BLUETOOTH")
+        }
+
+        if (
+            (routes and CallAudioState.ROUTE_WIRED_HEADSET) != 0
+        ) {
+            available.add("WIRED_HEADSET")
+        }
+
+        return available.joinToString(", ")
     }
 
     private fun getCallState(state: Int): String {
