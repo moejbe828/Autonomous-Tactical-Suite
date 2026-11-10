@@ -79,7 +79,9 @@
         <activity
             android:name=".ATSCallActivity"
             android:exported="false"
-            android:excludeFromRecents="true" />
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
 
         <!-- Floating Orb Service -->
         <service
