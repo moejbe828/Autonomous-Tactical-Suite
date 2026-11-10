@@ -128,6 +128,21 @@ class MainActivity : ComponentActivity() {
 
                 onStopOrb = {
                     stopOrbService()
+                },
+
+                // Contacts and Call History integration
+                contactsPermissionGranted =
+                    contactsPermissionGranted.value,
+
+                callLogPermissionGranted =
+                    callLogPermissionGranted.value,
+
+                onRequestContactsPermission = {
+                    requestContactsPermission()
+                },
+
+                onRequestCallLogPermission = {
+                    requestCallLogPermission()
                 }
             )
         }
@@ -146,7 +161,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // Request contacts access when needed
-    fun requestContactsPermission() {
+    private fun requestContactsPermission() {
 
         if (
             checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
@@ -162,7 +177,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // Request call history access when needed
-    fun requestCallLogPermission() {
+    private fun requestCallLogPermission() {
 
         if (
             checkSelfPermission(Manifest.permission.READ_CALL_LOG) ==
