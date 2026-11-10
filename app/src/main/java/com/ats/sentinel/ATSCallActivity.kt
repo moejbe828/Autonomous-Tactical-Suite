@@ -3,6 +3,8 @@ package com.ats.sentinel
 
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,6 +32,7 @@ private val CallGreen = Color(0xFF25C987)
 private val CallRed = Color(0xFFE5485B)
 
 object ATSCallSession {
+
     var currentCall by mutableStateOf<Call?>(null)
     var callState by mutableIntStateOf(Call.STATE_NEW)
     var callerName by mutableStateOf("UNKNOWN CALLER")
@@ -39,10 +42,15 @@ object ATSCallSession {
 
     var service: ATSInCallService? = null
 
+    private val dtmfHandler = Handler(Looper.getMainLooper())
+    private var pendingDtmfStop: Runnable? = null
+
     fun update(call: Call?) {
         currentCall = call
 
         if (call == null) {
+            stopPendingDtmf()
+
             callState = Call.STATE_DISCONNECTED
             callerName = "NO ACTIVE CALL"
             callerNumber = "—"
@@ -75,6 +83,7 @@ object ATSCallSession {
     }
 
     fun end() {
+        stopPendingDtmf()
         currentCall?.disconnect()
     }
 
@@ -86,6 +95,7 @@ object ATSCallSession {
 
     fun toggleSpeaker() {
         val next = !isSpeakerOn
+
         service?.setAudioRoute(
             if (next) {
                 android.telecom.CallAudioState.ROUTE_SPEAKER
@@ -93,7 +103,73 @@ object ATSCallSession {
                 android.telecom.CallAudioState.ROUTE_EARPIECE
             }
         )
+
         isSpeakerOn = next
+    }
+
+    fun sendDtmfTone(digit: Char) {
+        if (digit !in "0123456789*#") return
+
+        val call = currentCall ?: return
+
+        if (call.state != Call.STATE_ACTIVE) return
+
+        try {
+            stopPendingDtmf()
+
+            call.playDtmfTone(digit)
+
+            val stopAction = Runnable {
+                try {
+                    call.stopDtmfTone()
+                } catch (error: Exception) {
+                    Log.e(
+                        "ATS_DTMF",
+                        "Unable to stop DTMF tone",
+                        error
+                    )
+                }
+
+                pendingDtmfStop = null
+            }
+
+            pendingDtmfStop = stopAction
+
+            dtmfHandler.postDelayed(
+                stopAction,
+                150L
+            )
+
+            Log.i(
+                "ATS_DTMF",
+                "DTMF digit sent"
+            )
+
+        } catch (error: Exception) {
+            Log.e(
+                "ATS_DTMF",
+                "Unable to send DTMF digit",
+                error
+            )
+        }
+    }
+
+    private fun stopPendingDtmf() {
+        pendingDtmfStop?.let { action ->
+            dtmfHandler.removeCallbacks(action)
+        }
+
+        pendingDtmfStop = null
+
+        try {
+            currentCall?.stopDtmfTone()
+        } catch (error: Exception) {
+            Log.e(
+                "ATS_DTMF",
+                "Unable to stop active tone",
+                error
+            )
+        }
     }
 }
 
@@ -135,7 +211,10 @@ class ATSCallActivity : ComponentActivity() {
             )
 
             if (proximitySensor == null) {
-                Log.w("ATS_PROXIMITY", "Proximity sensor not available")
+                Log.w(
+                    "ATS_PROXIMITY",
+                    "Proximity sensor not available"
+                )
                 return
             }
 
@@ -143,7 +222,10 @@ class ATSCallActivity : ComponentActivity() {
                 PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK
 
             if (!powerManager.isWakeLockLevelSupported(wakeLockLevel)) {
-                Log.w("ATS_PROXIMITY", "Proximity wake lock not supported")
+                Log.w(
+                    "ATS_PROXIMITY",
+                    "Proximity wake lock not supported"
+                )
                 return
             }
 
@@ -154,13 +236,16 @@ class ATSCallActivity : ComponentActivity() {
 
             proximityWakeLock?.setReferenceCounted(false)
 
-            Log.i("ATS_PROXIMITY", "Proximity sensor initialized")
+            Log.i(
+                "ATS_PROXIMITY",
+                "Proximity sensor initialized"
+            )
 
-        } catch (e: Exception) {
+        } catch (error: Exception) {
             Log.e(
                 "ATS_PROXIMITY",
                 "Initialization failed",
-                e
+                error
             )
         }
     }
@@ -181,16 +266,20 @@ class ATSCallActivity : ComponentActivity() {
 
                 if (!wakeLock.isHeld) {
                     wakeLock.acquire()
-                    Log.i("ATS_PROXIMITY", "Proximity enabled")
+
+                    Log.i(
+                        "ATS_PROXIMITY",
+                        "Proximity enabled"
+                    )
                 }
             } else {
                 releaseProximityWakeLock()
             }
-        } catch (e: Exception) {
+        } catch (error: Exception) {
             Log.e(
                 "ATS_PROXIMITY",
                 "Unable to change proximity state",
-                e
+                error
             )
         }
     }
@@ -200,14 +289,18 @@ class ATSCallActivity : ComponentActivity() {
             proximityWakeLock?.let { wakeLock ->
                 if (wakeLock.isHeld) {
                     wakeLock.release()
-                    Log.i("ATS_PROXIMITY", "Proximity released")
+
+                    Log.i(
+                        "ATS_PROXIMITY",
+                        "Proximity released"
+                    )
                 }
             }
-        } catch (e: Exception) {
+        } catch (error: Exception) {
             Log.e(
                 "ATS_PROXIMITY",
                 "Wake lock release failed",
-                e
+                error
             )
         }
     }
@@ -229,6 +322,7 @@ class ATSCallActivity : ComponentActivity() {
         proximityRequested = false
         releaseProximityWakeLock()
         proximityWakeLock = null
+
         super.onDestroy()
     }
 }
@@ -249,6 +343,14 @@ private fun ATSCallScreen(
     val muted = ATSCallSession.isMuted
     val speaker = ATSCallSession.isSpeakerOn
 
+    var keypadVisible by remember {
+        mutableStateOf(false)
+    }
+
+    var dtmfDisplay by remember {
+        mutableStateOf("")
+    }
+
     val isRinging = state == Call.STATE_RINGING
     val isActive = state == Call.STATE_ACTIVE
     val isHolding = state == Call.STATE_HOLDING
@@ -257,7 +359,8 @@ private fun ATSCallScreen(
         state == Call.STATE_CONNECTING ||
         state == Call.STATE_DIALING
 
-    val proximityShouldBeActive = isActive || isHolding
+    val proximityShouldBeActive =
+        isActive || isHolding
 
     DisposableEffect(proximityShouldBeActive) {
         onProximityChanged(proximityShouldBeActive)
@@ -350,10 +453,11 @@ private fun ATSCallScreen(
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
 
                 if (isActive || isHolding) {
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -369,6 +473,89 @@ private fun ATSCallScreen(
                             active = speaker,
                             onClick = onSpeaker
                         )
+
+                        CallOption(
+                            label = if (keypadVisible) "HIDE" else "KEYPAD",
+                            active = keypadVisible,
+                            onClick = {
+                                keypadVisible = !keypadVisible
+                                dtmfDisplay = ""
+                            }
+                        )
+                    }
+
+                    if (keypadVisible) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    CallSurface,
+                                    RoundedCornerShape(18.dp)
+                                )
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+
+                            Text(
+                                text = if (dtmfDisplay.isEmpty()) {
+                                    "ENTER DTMF DIGITS"
+                                } else {
+                                    dtmfDisplay
+                                },
+                                color = CallBlue,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+
+                            val keypadRows = listOf(
+                                listOf('1', '2', '3'),
+                                listOf('4', '5', '6'),
+                                listOf('7', '8', '9'),
+                                listOf('*', '0', '#')
+                            )
+
+                            keypadRows.forEach { row ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    row.forEach { digit ->
+                                        Button(
+                                            onClick = {
+                                                ATSCallSession.sendDtmfTone(digit)
+
+                                                dtmfDisplay =
+                                                    (dtmfDisplay + digit).takeLast(16)
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(horizontal = 5.dp)
+                                                .height(45.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = CallBackground,
+                                                contentColor = CallText
+                                            )
+                                        ) {
+                                            Text(
+                                                text = digit.toString(),
+                                                fontSize = 19.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "DTMF • TELECOM",
+                                color = CallMuted,
+                                fontSize = 9.sp,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
 
                     CallActionButton(
@@ -378,6 +565,7 @@ private fun ATSCallScreen(
                     )
 
                 } else if (isRinging) {
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -397,6 +585,7 @@ private fun ATSCallScreen(
                     }
 
                 } else if (isConnecting) {
+
                     CallActionButton(
                         label = "CANCEL CALL",
                         color = CallRed,
@@ -404,6 +593,7 @@ private fun ATSCallScreen(
                     )
 
                 } else {
+
                     Button(
                         onClick = onClose,
                         colors = ButtonDefaults.buttonColors(
