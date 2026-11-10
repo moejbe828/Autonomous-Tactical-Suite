@@ -3,6 +3,7 @@ package com.ats.sentinel
 
 import android.content.Intent
 import android.telecom.Call
+import android.telecom.CallAudioState
 import android.telecom.InCallService
 import android.util.Log
 
@@ -15,12 +16,21 @@ class ATSInCallService : InCallService() {
     private var activeCall: Call? = null
 
     private val callCallback = object : Call.Callback() {
+
         override fun onStateChanged(call: Call, state: Int) {
             super.onStateChanged(call, state)
 
             if (call === activeCall) {
                 ATSCallSession.update(call)
-                Log.i(TAG, "Call state changed: ${getCallState(state)}")
+
+                Log.i(
+                    TAG,
+                    "Call state changed: ${getCallState(state)}"
+                )
+
+                if (state == Call.STATE_ACTIVE) {
+                    ensureDefaultAudioRoute()
+                }
             }
         }
 
@@ -38,7 +48,9 @@ class ATSInCallService : InCallService() {
 
     override fun onCreate() {
         super.onCreate()
+
         ATSCallSession.service = this
+
         Log.i(TAG, "ATS InCallService created")
     }
 
@@ -55,7 +67,12 @@ class ATSInCallService : InCallService() {
             "Call added: ${getCallState(call.state)}"
         )
 
-        val intent = Intent(this, ATSCallActivity::class.java).apply {
+        ensureDefaultAudioRoute()
+
+        val intent = Intent(
+            this,
+            ATSCallActivity::class.java
+        ).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -65,7 +82,75 @@ class ATSInCallService : InCallService() {
         try {
             startActivity(intent)
         } catch (error: Exception) {
-            Log.e(TAG, "Unable to open ATS call screen", error)
+            Log.e(
+                TAG,
+                "Unable to open ATS call screen",
+                error
+            )
+        }
+    }
+
+    override fun onCallAudioStateChanged(
+        audioState: CallAudioState
+    ) {
+        super.onCallAudioStateChanged(audioState)
+
+        // Synchronize the actual Android audio state with ATS.
+        ATSCallSession.isSpeakerOn =
+            audioState.route == CallAudioState.ROUTE_SPEAKER
+
+        Log.i(
+            TAG,
+            "Audio route changed: ${getAudioRouteName(audioState.route)}"
+        )
+
+        Log.i(
+            TAG,
+            "Supported audio routes: ${audioState.supportedRouteMask}"
+        )
+    }
+
+    /**
+     * Keep the earpiece as the default route when available.
+     * Do not override an already connected Bluetooth or wired headset.
+     */
+    private fun ensureDefaultAudioRoute() {
+        try {
+            val audioState = callAudioState ?: return
+
+            val earpieceAvailable =
+                (audioState.supportedRouteMask and
+                    CallAudioState.ROUTE_EARPIECE) != 0
+
+            val externalHeadsetActive =
+                audioState.route == CallAudioState.ROUTE_BLUETOOTH ||
+                audioState.route == CallAudioState.ROUTE_WIRED_HEADSET
+
+            val speakerCurrentlyActive =
+                audioState.route == CallAudioState.ROUTE_SPEAKER
+
+            if (
+                earpieceAvailable &&
+                speakerCurrentlyActive &&
+                !externalHeadsetActive
+            ) {
+                setAudioRoute(
+                    CallAudioState.ROUTE_EARPIECE
+                )
+
+                ATSCallSession.isSpeakerOn = false
+
+                Log.i(
+                    TAG,
+                    "Default audio route requested: EARPIECE"
+                )
+            }
+        } catch (error: Exception) {
+            Log.e(
+                TAG,
+                "Unable to set default audio route",
+                error
+            )
         }
     }
 
@@ -87,8 +172,20 @@ class ATSInCallService : InCallService() {
 
     override fun onDestroy() {
         ATSCallSession.service = null
+
         super.onDestroy()
+
         Log.i(TAG, "ATS InCallService destroyed")
+    }
+
+    private fun getAudioRouteName(route: Int): String {
+        return when (route) {
+            CallAudioState.ROUTE_EARPIECE -> "EARPIECE"
+            CallAudioState.ROUTE_SPEAKER -> "SPEAKER"
+            CallAudioState.ROUTE_BLUETOOTH -> "BLUETOOTH"
+            CallAudioState.ROUTE_WIRED_HEADSET -> "WIRED_HEADSET"
+            else -> "UNKNOWN"
+        }
     }
 
     private fun getCallState(state: Int): String {
