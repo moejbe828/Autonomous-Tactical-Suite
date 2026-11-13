@@ -40,6 +40,10 @@ class MainActivity : ComponentActivity() {
     private val deviceDataExecutor =
         Executors.newSingleThreadExecutor()
 
+    // ---------------------------------------------------------
+    // OVERLAY PERMISSION
+    // ---------------------------------------------------------
+
     private val overlayPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
@@ -52,6 +56,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+    // ---------------------------------------------------------
+    // DEFAULT DIALER ROLE
+    // ---------------------------------------------------------
 
     private val dialerRoleLauncher =
         registerForActivityResult(
@@ -67,6 +75,29 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    // ---------------------------------------------------------
+    // CALL SCREENING ROLE
+    // ---------------------------------------------------------
+
+    private val callScreeningRoleLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) {
+            if (isCallScreeningRoleHeld()) {
+                showMessage(
+                    "ATS CALL SCREENING ENABLED."
+                )
+            } else {
+                showMessage(
+                    "Call screening role was not granted. Blocking remains inactive."
+                )
+            }
+        }
+
+    // ---------------------------------------------------------
+    // CALL PERMISSION
+    // ---------------------------------------------------------
+
     private val callPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -80,6 +111,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+    // ---------------------------------------------------------
+    // CONTACTS PERMISSION
+    // ---------------------------------------------------------
 
     private val contactsPermissionLauncher =
         registerForActivityResult(
@@ -96,6 +131,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    // ---------------------------------------------------------
+    // CALL LOG PERMISSION
+    // ---------------------------------------------------------
+
     private val callLogPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -110,6 +149,10 @@ class MainActivity : ComponentActivity() {
                 showMessage("Call history permission was denied.")
             }
         }
+
+    // ---------------------------------------------------------
+    // ACTIVITY CREATION
+    // ---------------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -165,8 +208,8 @@ class MainActivity : ComponentActivity() {
                     addContact("", number)
                 },
 
-                onManageBlockedNumbers = { number ->
-                    openBlockedNumbersSettings(number)
+                onManageBlockedNumbers = {
+                    requestCallScreeningRole()
                 }
             )
         }
@@ -180,11 +223,11 @@ class MainActivity : ComponentActivity() {
 
         contactsPermissionGranted.value =
             checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
-                PackageManager.PERMISSION_GRANTED
+                    PackageManager.PERMISSION_GRANTED
 
         callLogPermissionGranted.value =
             checkSelfPermission(Manifest.permission.READ_CALL_LOG) ==
-                PackageManager.PERMISSION_GRANTED
+                    PackageManager.PERMISSION_GRANTED
 
         if (contactsPermissionGranted.value) {
             loadContacts()
@@ -359,6 +402,80 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------------------------------------------------------
+    // CALL SCREENING ROLE MANAGEMENT
+    // ---------------------------------------------------------
+
+    private fun isCallScreeningRoleHeld(): Boolean {
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return false
+        }
+
+        val roleManager =
+            getSystemService(RoleManager::class.java)
+                ?: return false
+
+        return roleManager.isRoleHeld(
+            RoleManager.ROLE_CALL_SCREENING
+        )
+    }
+
+    private fun requestCallScreeningRole() {
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            showMessage(
+                "ATS Call Screening requires Android 10 or newer."
+            )
+            return
+        }
+
+        val roleManager =
+            getSystemService(RoleManager::class.java)
+
+        if (roleManager == null) {
+            showMessage("Android Role Manager is unavailable.")
+            return
+        }
+
+        if (
+            !roleManager.isRoleAvailable(
+                RoleManager.ROLE_CALL_SCREENING
+            )
+        ) {
+            showMessage(
+                "Call screening role is unavailable on this device."
+            )
+            return
+        }
+
+        if (
+            roleManager.isRoleHeld(
+                RoleManager.ROLE_CALL_SCREENING
+            )
+        ) {
+            showMessage(
+                "ATS Call Screening is already enabled."
+            )
+            return
+        }
+
+        try {
+            val requestIntent =
+                roleManager.createRequestRoleIntent(
+                    RoleManager.ROLE_CALL_SCREENING
+                )
+
+            callScreeningRoleLauncher.launch(requestIntent)
+
+        } catch (error: Exception) {
+            showMessage(
+                "Unable to request call screening role: " +
+                        (error.message ?: "Unknown error")
+            )
+        }
+    }
+
+    // ---------------------------------------------------------
     // BLOCKED NUMBERS
     // ---------------------------------------------------------
 
@@ -428,9 +545,9 @@ class MainActivity : ComponentActivity() {
 
         val number = rawNumber.filter {
             it.isDigit() ||
-                it == '+' ||
-                it == '*' ||
-                it == '#'
+                    it == '+' ||
+                    it == '*' ||
+                    it == '#'
         }
 
         if (number.isBlank() || !number.any { it.isDigit() }) {
