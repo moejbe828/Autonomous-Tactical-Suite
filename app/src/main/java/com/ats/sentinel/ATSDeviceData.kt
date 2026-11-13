@@ -1,4 +1,3 @@
-
 package com.ats.sentinel
 
 import android.content.ContentResolver
@@ -9,19 +8,25 @@ import java.util.Date
 import java.util.Locale
 
 data class ATSContact(
+    val contactId: Long,
+    val phoneId: Long,
     val name: String,
     val phoneNumber: String
 )
 
 data class ATSCallLogEntry(
+    val id: Long,
     val name: String,
     val phoneNumber: String,
     val callType: String,
     val date: String,
-    val duration: String
+    val duration: String,
+    val timestamp: Long
 )
 
 object ATSDeviceDataReader {
+
+    private const val MAX_CALL_HISTORY = 200
 
     fun readContacts(
         resolver: ContentResolver
@@ -31,6 +36,8 @@ object ATSDeviceDataReader {
 
         try {
             val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Phone._ID,
+                ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
                 ContactsContract.CommonDataKinds.Phone.NUMBER
             )
@@ -40,8 +47,17 @@ object ATSDeviceDataReader {
                 projection,
                 null,
                 null,
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " COLLATE NOCASE ASC"
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME +
+                    " COLLATE NOCASE ASC"
             )?.use { cursor ->
+
+                val phoneIdIndex = cursor.getColumnIndex(
+                    ContactsContract.CommonDataKinds.Phone._ID
+                )
+
+                val contactIdIndex = cursor.getColumnIndex(
+                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID
+                )
 
                 val nameIndex = cursor.getColumnIndex(
                     ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
@@ -51,29 +67,47 @@ object ATSDeviceDataReader {
                     ContactsContract.CommonDataKinds.Phone.NUMBER
                 )
 
-                if (nameIndex >= 0 && numberIndex >= 0) {
-                    while (cursor.moveToNext()) {
-                        val name = cursor.getString(nameIndex).orEmpty()
-                        val number = cursor.getString(numberIndex).orEmpty()
+                if (
+                    phoneIdIndex < 0 ||
+                    contactIdIndex < 0 ||
+                    nameIndex < 0 ||
+                    numberIndex < 0
+                ) {
+                    return emptyList()
+                }
 
-                        if (number.isNotBlank()) {
-                            result.add(
-                                ATSContact(
-                                    name = name.ifBlank { "Unknown contact" },
-                                    phoneNumber = number
-                                )
+                while (cursor.moveToNext()) {
+
+                    val phoneId = cursor.getLong(phoneIdIndex)
+                    val contactId = cursor.getLong(contactIdIndex)
+
+                    val name = cursor.getString(nameIndex).orEmpty()
+                    val number = cursor.getString(numberIndex).orEmpty()
+
+                    if (number.isNotBlank()) {
+                        result.add(
+                            ATSContact(
+                                contactId = contactId,
+                                phoneId = phoneId,
+                                name = name.ifBlank {
+                                    "Unknown contact"
+                                },
+                                phoneNumber = number
                             )
-                        }
+                        )
                     }
                 }
             }
+
         } catch (_: SecurityException) {
             return emptyList()
         } catch (_: Exception) {
             return emptyList()
         }
 
-        return result.distinctBy { it.phoneNumber }
+        return result.distinctBy {
+            "${it.contactId}_${it.phoneNumber}"
+        }
     }
 
     fun readCallHistory(
@@ -84,6 +118,7 @@ object ATSDeviceDataReader {
 
         try {
             val projection = arrayOf(
+                CallLog.Calls._ID,
                 CallLog.Calls.CACHED_NAME,
                 CallLog.Calls.NUMBER,
                 CallLog.Calls.TYPE,
@@ -99,33 +134,60 @@ object ATSDeviceDataReader {
                 CallLog.Calls.DATE + " DESC"
             )?.use { cursor ->
 
-                val nameIndex = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME)
-                val numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER)
-                val typeIndex = cursor.getColumnIndex(CallLog.Calls.TYPE)
-                val dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE)
-                val durationIndex = cursor.getColumnIndex(CallLog.Calls.DURATION)
+                val idIndex = cursor.getColumnIndex(
+                    CallLog.Calls._ID
+                )
 
-                while (cursor.moveToNext() && result.size < 200) {
+                val nameIndex = cursor.getColumnIndex(
+                    CallLog.Calls.CACHED_NAME
+                )
 
-                    val name = if (nameIndex >= 0)
+                val numberIndex = cursor.getColumnIndex(
+                    CallLog.Calls.NUMBER
+                )
+
+                val typeIndex = cursor.getColumnIndex(
+                    CallLog.Calls.TYPE
+                )
+
+                val dateIndex = cursor.getColumnIndex(
+                    CallLog.Calls.DATE
+                )
+
+                val durationIndex = cursor.getColumnIndex(
+                    CallLog.Calls.DURATION
+                )
+
+                if (
+                    idIndex < 0 ||
+                    numberIndex < 0 ||
+                    typeIndex < 0 ||
+                    dateIndex < 0 ||
+                    durationIndex < 0
+                ) {
+                    return emptyList()
+                }
+
+                while (
+                    cursor.moveToNext() &&
+                    result.size < MAX_CALL_HISTORY
+                ) {
+
+                    val id = cursor.getLong(idIndex)
+
+                    val name = if (nameIndex >= 0) {
                         cursor.getString(nameIndex).orEmpty()
-                    else ""
+                    } else {
+                        ""
+                    }
 
-                    val number = if (numberIndex >= 0)
-                        cursor.getString(numberIndex).orEmpty()
-                    else ""
+                    val number = cursor.getString(numberIndex).orEmpty()
 
-                    val type = if (typeIndex >= 0)
-                        cursor.getInt(typeIndex)
-                    else 0
+                    val type = cursor.getInt(typeIndex)
 
-                    val timestamp = if (dateIndex >= 0)
-                        cursor.getLong(dateIndex)
-                    else 0L
+                    val timestamp = cursor.getLong(dateIndex)
 
-                    val seconds = if (durationIndex >= 0)
-                        cursor.getLong(durationIndex)
-                    else 0L
+                    val seconds = cursor.getLong(durationIndex)
 
                     val callType = when (type) {
                         CallLog.Calls.INCOMING_TYPE -> "INCOMING"
@@ -136,7 +198,7 @@ object ATSDeviceDataReader {
                         else -> "OTHER"
                     }
 
-                    val formattedDate = if (timestamp > 0) {
+                    val formattedDate = if (timestamp > 0L) {
                         SimpleDateFormat(
                             "yyyy-MM-dd HH:mm",
                             Locale.getDefault()
@@ -145,7 +207,7 @@ object ATSDeviceDataReader {
                         "Unknown date"
                     }
 
-                    val duration = String.format(
+                    val formattedDuration = String.format(
                         Locale.getDefault(),
                         "%02d:%02d",
                         seconds / 60,
@@ -154,15 +216,20 @@ object ATSDeviceDataReader {
 
                     result.add(
                         ATSCallLogEntry(
-                            name = name.ifBlank { "Unknown caller" },
+                            id = id,
+                            name = name.ifBlank {
+                                "Unknown caller"
+                            },
                             phoneNumber = number,
                             callType = callType,
                             date = formattedDate,
-                            duration = duration
+                            duration = formattedDuration,
+                            timestamp = timestamp
                         )
                     )
                 }
             }
+
         } catch (_: SecurityException) {
             return emptyList()
         } catch (_: Exception) {
