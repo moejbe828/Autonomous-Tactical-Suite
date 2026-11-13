@@ -4,18 +4,18 @@ package com.ats.sentinel
 import android.content.Context
 import android.content.SharedPreferences
 import android.telephony.PhoneNumberUtils
+import android.telephony.TelephonyManager
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
-import java.security.MessageDigest
+import java.util.Locale
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 
@@ -58,7 +58,73 @@ object ATSBlockedNumbersStore {
         )
     }
 
-    private fun normalizeNumber(rawNumber: String): String {
+    /**
+     * Country selection priority:
+     * 1. SIM country
+     * 2. Network country
+     * 3. Device locale
+     *
+     * No country is hardcoded.
+     */
+    private fun getDefaultCountryIso(context: Context): String? {
+        val telephonyManager = try {
+            context.applicationContext.getSystemService(
+                Context.TELEPHONY_SERVICE
+            ) as? TelephonyManager
+        } catch (_: Exception) {
+            null
+        }
+
+        val simCountry = try {
+            telephonyManager?.simCountryIso
+                ?.trim()
+                ?.lowercase(Locale.ROOT)
+                ?.takeIf { it.matches(Regex("^[a-z]{2}$")) }
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+
+        if (!simCountry.isNullOrBlank()) {
+            return simCountry
+        }
+
+        val networkCountry = try {
+            telephonyManager?.networkCountryIso
+                ?.trim()
+                ?.lowercase(Locale.ROOT)
+                ?.takeIf { it.matches(Regex("^[a-z]{2}$")) }
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+
+        if (!networkCountry.isNullOrBlank()) {
+            return networkCountry
+        }
+
+        return Locale.getDefault()
+            .country
+            .trim()
+            .lowercase(Locale.ROOT)
+            .takeIf { it.matches(Regex("^[a-z]{2}$")) }
+    }
+
+    /**
+     * Converts phone numbers into a consistent representation.
+     *
+     * Valid local numbers are converted to E.164 using the
+     * automatically detected country ISO.
+     *
+     * International numbers retain their international identity.
+     * If conversion is unavailable, a conservative fallback is used.
+     */
+    private fun normalizeNumber(
+        context: Context,
+        rawNumber: String
+    ): String {
         val input = rawNumber.trim()
 
         if (input.isEmpty()) {
@@ -76,10 +142,54 @@ object ATSBlockedNumbersStore {
             )
         }
 
-        val international = input.startsWith("+") ||
-                normalized.startsWith("+")
+        val isInternational =
+            input.startsWith("+") || normalized.startsWith("+")
 
-        return (if (international) "+" else "") + digits
+        val countryIso = getDefaultCountryIso(context)
+
+        if (isInternational) {
+            val e164 = countryIso?.let {
+                try {
+                    PhoneNumberUtils.formatNumberToE164(input, it.uppercase())
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            return e164 ?: "+$digits"
+        }
+
+        if (!countryIso.isNullOrBlank()) {
+            val e164 = try {
+                PhoneNumberUtils.formatNumberToE164(
+                    input,
+                    countryIso.uppercase(Locale.ROOT)
+                )
+            } catch (_: Exception) {
+                null
+            }
+
+            if (!e164.isNullOrBlank()) {
+                return e164
+            }
+        }
+
+        // Conservative fallback: do not guess a country code.
+        return digits
+    }
+
+    /**
+     * Public normalization entry point for UI components.
+     * CONTACTS and CALL HISTORY should use this same function
+     * instead of implementing their own number comparison.
+     */
+    @Synchronized
+    @Throws(ATSBlockedNumbersStoreException::class)
+    fun normalizeForComparison(
+        context: Context,
+        rawNumber: String
+    ): String {
+        return normalizeNumber(context, rawNumber)
     }
 
     private fun getSecretKey(): SecretKey {
@@ -101,7 +211,7 @@ object ATSBlockedNumbersStore {
             val specification = KeyGenParameterSpec.Builder(
                 KEY_ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT or
-                        KeyProperties.PURPOSE_DECRYPT
+                    KeyProperties.PURPOSE_DECRYPT
             )
                 .setKeySize(256)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -225,7 +335,10 @@ object ATSBlockedNumbersStore {
 
             for (i in 0 until numberArray.length()) {
                 val number = numberArray.getString(i)
-                numbers.add(normalizeNumber(number))
+
+                numbers.add(
+                    normalizeNumber(context, number)
+                )
             }
 
             val audit = mutableListOf<ATSBlockingAuditEvent>()
@@ -250,6 +363,8 @@ object ATSBlockedNumbersStore {
                 audit = audit
             )
 
+        } catch (e: ATSBlockedNumbersStoreException) {
+            throw e
         } catch (e: Exception) {
             throw ATSBlockedNumbersStoreException(
                 "Encrypted database format is invalid.",
@@ -348,7 +463,7 @@ object ATSBlockedNumbersStore {
         rawNumber: String,
         source: String = "MANUAL"
     ): Boolean {
-        val number = normalizeNumber(rawNumber)
+        val number = normalizeNumber(context, rawNumber)
         val state = loadState(context)
 
         if (number in state.numbers) {
@@ -376,7 +491,7 @@ object ATSBlockedNumbersStore {
         rawNumber: String,
         source: String = "MANUAL"
     ): Boolean {
-        val number = normalizeNumber(rawNumber)
+        val number = normalizeNumber(context, rawNumber)
         val state = loadState(context)
 
         if (!state.numbers.remove(number)) {
@@ -401,7 +516,7 @@ object ATSBlockedNumbersStore {
         context: Context,
         rawNumber: String
     ): Boolean {
-        val number = normalizeNumber(rawNumber)
+        val number = normalizeNumber(context, rawNumber)
         return number in loadState(context).numbers
     }
 
@@ -432,8 +547,8 @@ object ATSBlockedNumbersStore {
         val state = loadState(context)
 
         return "SECURE | AES-256-GCM | " +
-                "Integrity: VERIFIED | " +
-                "Blocked: ${state.numbers.size} | " +
-                "Audit Events: ${state.audit.size}"
+            "Integrity: VERIFIED | " +
+            "Blocked: ${state.numbers.size} | " +
+            "Audit Events: ${state.audit.size}"
     }
 }
