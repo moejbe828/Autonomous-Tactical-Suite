@@ -3,11 +3,13 @@ package com.ats.sentinel
 
 import android.Manifest
 import android.app.role.RoleManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.provider.Settings
 import android.telecom.TelecomManager
 import android.widget.Toast
@@ -23,22 +25,21 @@ class MainActivity : ComponentActivity() {
     private var pendingCallNumber: String? = null
 
     private val orbRunning = mutableStateOf(false)
-
     private val initialDialNumber = mutableStateOf("")
     private val openDialerPage = mutableStateOf(false)
 
-    // Contacts and call-log permissions
     private val contactsPermissionGranted = mutableStateOf(false)
     private val callLogPermissionGranted = mutableStateOf(false)
 
-    // Device data
-    private val contacts = mutableStateOf<List<ATSContact>>(emptyList())
-    private val callHistory = mutableStateOf<List<ATSCallLogEntry>>(emptyList())
+    private val contacts =
+        mutableStateOf<List<ATSContact>>(emptyList())
 
-    // Background worker for private on-device data reading
-    private val deviceDataExecutor = Executors.newSingleThreadExecutor()
+    private val callHistory =
+        mutableStateOf<List<ATSCallLogEntry>>(emptyList())
 
-    // Overlay permission
+    private val deviceDataExecutor =
+        Executors.newSingleThreadExecutor()
+
     private val overlayPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
@@ -52,7 +53,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    // Default dialer role
     private val dialerRoleLauncher =
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
@@ -67,12 +67,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    // CALL_PHONE runtime permission
     private val callPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
-
             if (granted) {
                 placePendingCall()
             } else {
@@ -83,7 +81,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    // Contacts runtime permission
     private val contactsPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -99,7 +96,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    // Call history runtime permission
     private val callLogPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -155,12 +151,35 @@ class MainActivity : ComponentActivity() {
                 },
 
                 contacts = contacts.value,
-                callHistory = callHistory.value
+                callHistory = callHistory.value,
+
+                // Open an existing contact in Android Contacts
+                onOpenContact = { contactId ->
+                    openContact(contactId)
+                },
+
+                // Create a new contact
+                onAddContact = { name, number ->
+                    addContact(name, number)
+                },
+
+                // Save a number from history or another screen
+                onAddNumberToContacts = { number ->
+                    addContact("", number)
+                },
+
+                // Open Android blocked-number management
+                onManageBlockedNumbers = { number ->
+                    openBlockedNumbersSettings(number)
+                }
             )
         }
     }
 
-    // Refresh permission status from Android
+    // ---------------------------------------------------------
+    // DEVICE DATA
+    // ---------------------------------------------------------
+
     private fun refreshDataPermissions() {
 
         contactsPermissionGranted.value =
@@ -184,7 +203,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Load contacts locally in background
     private fun loadContacts() {
 
         if (
@@ -211,7 +229,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Load call history locally in background
     private fun loadCallHistory() {
 
         if (
@@ -238,7 +255,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Request contacts access when needed
     private fun requestContactsPermission() {
 
         if (
@@ -255,7 +271,6 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    // Request call history access when needed
     private fun requestCallLogPermission() {
 
         if (
@@ -272,7 +287,117 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    // Handle calls opened through ACTION_DIAL
+    // ---------------------------------------------------------
+    // CONTACT ACTIONS
+    // ---------------------------------------------------------
+
+    private fun openContact(contactId: Long) {
+
+        if (contactId <= 0L) {
+            showMessage("Invalid contact.")
+            return
+        }
+
+        try {
+            val contactUri = Uri.withAppendedPath(
+                ContactsContract.Contacts.CONTENT_URI,
+                contactId.toString()
+            )
+
+            val intent = Intent(
+                Intent.ACTION_VIEW,
+                contactUri
+            )
+
+            startActivity(intent)
+
+        } catch (_: ActivityNotFoundException) {
+            showMessage("No contacts application is available.")
+        } catch (error: Exception) {
+            showMessage(
+                "Unable to open contact: ${error.message ?: "Unknown error"}"
+            )
+        }
+    }
+
+    private fun addContact(
+        name: String,
+        rawNumber: String
+    ) {
+
+        val number = rawNumber.trim()
+
+        if (number.isBlank()) {
+            showMessage("Enter a phone number first.")
+            return
+        }
+
+        try {
+            val intent = Intent(
+                Intent.ACTION_INSERT
+            ).apply {
+                type = ContactsContract.Contacts.CONTENT_TYPE
+
+                if (name.isNotBlank()) {
+                    putExtra(
+                        ContactsContract.Intents.Insert.NAME,
+                        name
+                    )
+                }
+
+                putExtra(
+                    ContactsContract.Intents.Insert.PHONE,
+                    number
+                )
+            }
+
+            startActivity(intent)
+
+        } catch (_: ActivityNotFoundException) {
+            showMessage("No contacts application is available.")
+        } catch (error: Exception) {
+            showMessage(
+                "Unable to create contact: ${error.message ?: "Unknown error"}"
+            )
+        }
+    }
+
+    // ---------------------------------------------------------
+    // BLOCKED NUMBERS
+    // ---------------------------------------------------------
+
+    private fun openBlockedNumbersSettings(number: String) {
+
+        val cleanNumber = number.trim()
+
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_BLOCKED_NUMBERS_SETTINGS
+            )
+
+            startActivity(intent)
+
+            if (cleanNumber.isNotBlank()) {
+                showMessage(
+                    "Review the blocked numbers screen and add or remove $cleanNumber there."
+                )
+            }
+
+        } catch (_: ActivityNotFoundException) {
+            showMessage(
+                "Blocked-number management is not available on this device."
+            )
+        } catch (error: Exception) {
+            showMessage(
+                "Unable to open blocked-number settings: ${error.message ?: "Unknown error"}"
+            )
+        }
+    }
+
+    // ---------------------------------------------------------
+    // DIAL INTENTS
+    // ---------------------------------------------------------
+
     private fun handleDialIntent(source: Intent?) {
 
         if (source?.action != Intent.ACTION_DIAL) {
@@ -294,7 +419,10 @@ class MainActivity : ComponentActivity() {
         handleDialIntent(intent)
     }
 
-    // Request default dialer role before placing a call
+    // ---------------------------------------------------------
+    // OUTGOING CALLS
+    // ---------------------------------------------------------
+
     private fun requestOutgoingCall(rawNumber: String) {
 
         val number = rawNumber.filter {
@@ -344,7 +472,6 @@ class MainActivity : ComponentActivity() {
 
             } catch (_: Exception) {
                 pendingCallNumber = null
-
                 showMessage(
                     "Unable to request the default dialer role."
                 )
@@ -371,7 +498,6 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    // Request CALL_PHONE only after the role is granted
     private fun continuePendingCall() {
 
         if (pendingCallNumber.isNullOrBlank()) {
@@ -397,7 +523,6 @@ class MainActivity : ComponentActivity() {
         placePendingCall()
     }
 
-    // Place the call through Android Telecom
     private fun placePendingCall() {
 
         val number = pendingCallNumber ?: return
@@ -455,6 +580,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------------------------------------------------------
+    // MESSAGES
+    // ---------------------------------------------------------
+
     private fun showMessage(message: String) {
         Toast.makeText(
             this,
@@ -463,7 +592,10 @@ class MainActivity : ComponentActivity() {
         ).show()
     }
 
-    // Floating Orb
+    // ---------------------------------------------------------
+    // FLOATING ORB
+    // ---------------------------------------------------------
+
     private fun requestOrbStart() {
 
         if (Settings.canDrawOverlays(this)) {
@@ -494,6 +626,7 @@ class MainActivity : ComponentActivity() {
 
         } catch (_: Exception) {
             orbRunning.value = false
+            showMessage("Unable to start ATS Orb.")
         }
     }
 
@@ -513,6 +646,10 @@ class MainActivity : ComponentActivity() {
 
         orbRunning.value = false
     }
+
+    // ---------------------------------------------------------
+    // LIFECYCLE
+    // ---------------------------------------------------------
 
     override fun onResume() {
         super.onResume()
