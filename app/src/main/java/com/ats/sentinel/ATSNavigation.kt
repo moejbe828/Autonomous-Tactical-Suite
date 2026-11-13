@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,20 +35,34 @@ private enum class ATSPage {
     BLOCKED_NUMBERS
 }
 
-private fun normalizeATSNumber(number: String): String {
-    return number.filter { it.isDigit() }
-}
-
+/**
+ * Uses the same centralized number normalization
+ * as the encrypted blocking database and call screening.
+ */
 private fun isATSNumberBlocked(
+    context: android.content.Context,
     number: String,
     blockedNumbers: List<ATSBlockedNumber>
 ): Boolean {
-    val normalized = normalizeATSNumber(number)
+    if (number.isBlank()) return false
 
-    if (normalized.isBlank()) return false
+    return try {
+        val normalized =
+            ATSBlockedNumbersStore.normalizeForComparison(
+                context,
+                number
+            )
 
-    return blockedNumbers.any {
-        normalizeATSNumber(it.number) == normalized
+        if (normalized.isBlank()) return false
+
+        blockedNumbers.any { blocked ->
+            ATSBlockedNumbersStore.normalizeForComparison(
+                context,
+                blocked.number
+            ) == normalized
+        }
+    } catch (_: Exception) {
+        false
     }
 }
 
@@ -660,6 +675,8 @@ private fun ContactsScreen(
     onBlockNumber: (String) -> Unit,
     onUnblockNumber: (String) -> Unit
 ) {
+    val context = LocalContext.current
+
     var newContactName by remember {
         mutableStateOf("")
     }
@@ -765,6 +782,7 @@ private fun ContactsScreen(
             ) { contact ->
 
                 val isBlocked = isATSNumberBlocked(
+                    context,
                     contact.phoneNumber,
                     blockedNumbers
                 )
@@ -870,6 +888,8 @@ private fun HistoryScreen(
     onBlockNumber: (String) -> Unit,
     onUnblockNumber: (String) -> Unit
 ) {
+    val context = LocalContext.current
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -918,6 +938,7 @@ private fun HistoryScreen(
             ) { entry ->
 
                 val isBlocked = isATSNumberBlocked(
+                    context,
                     entry.phoneNumber,
                     blockedNumbers
                 )
