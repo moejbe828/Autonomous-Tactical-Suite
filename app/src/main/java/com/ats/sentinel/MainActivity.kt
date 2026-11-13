@@ -15,6 +15,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
@@ -26,9 +27,16 @@ class MainActivity : ComponentActivity() {
     private val initialDialNumber = mutableStateOf("")
     private val openDialerPage = mutableStateOf(false)
 
-    // Contacts and call-log permission states
+    // Contacts and call-log permissions
     private val contactsPermissionGranted = mutableStateOf(false)
     private val callLogPermissionGranted = mutableStateOf(false)
+
+    // Device data
+    private val contacts = mutableStateOf<List<ATSContact>>(emptyList())
+    private val callHistory = mutableStateOf<List<ATSCallLogEntry>>(emptyList())
+
+    // Background worker for private on-device data reading
+    private val deviceDataExecutor = Executors.newSingleThreadExecutor()
 
     // Overlay permission
     private val overlayPermissionLauncher =
@@ -85,6 +93,7 @@ class MainActivity : ComponentActivity() {
 
             if (granted) {
                 showMessage("Contacts permission granted.")
+                loadContacts()
             } else {
                 showMessage("Contacts permission was denied.")
             }
@@ -100,6 +109,7 @@ class MainActivity : ComponentActivity() {
 
             if (granted) {
                 showMessage("Call history permission granted.")
+                loadCallHistory()
             } else {
                 showMessage("Call history permission was denied.")
             }
@@ -130,7 +140,6 @@ class MainActivity : ComponentActivity() {
                     stopOrbService()
                 },
 
-                // Contacts and Call History integration
                 contactsPermissionGranted =
                     contactsPermissionGranted.value,
 
@@ -143,7 +152,10 @@ class MainActivity : ComponentActivity() {
 
                 onRequestCallLogPermission = {
                     requestCallLogPermission()
-                }
+                },
+
+                contacts = contacts.value,
+                callHistory = callHistory.value
             )
         }
     }
@@ -158,6 +170,72 @@ class MainActivity : ComponentActivity() {
         callLogPermissionGranted.value =
             checkSelfPermission(Manifest.permission.READ_CALL_LOG) ==
                 PackageManager.PERMISSION_GRANTED
+
+        if (contactsPermissionGranted.value) {
+            loadContacts()
+        } else {
+            contacts.value = emptyList()
+        }
+
+        if (callLogPermissionGranted.value) {
+            loadCallHistory()
+        } else {
+            callHistory.value = emptyList()
+        }
+    }
+
+    // Load contacts locally in background
+    private fun loadContacts() {
+
+        if (
+            checkSelfPermission(Manifest.permission.READ_CONTACTS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            contactsPermissionGranted.value = false
+            contacts.value = emptyList()
+            return
+        }
+
+        deviceDataExecutor.execute {
+            val result =
+                ATSDeviceDataReader.readContacts(contentResolver)
+
+            runOnUiThread {
+                if (
+                    checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    contacts.value = result
+                }
+            }
+        }
+    }
+
+    // Load call history locally in background
+    private fun loadCallHistory() {
+
+        if (
+            checkSelfPermission(Manifest.permission.READ_CALL_LOG) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            callLogPermissionGranted.value = false
+            callHistory.value = emptyList()
+            return
+        }
+
+        deviceDataExecutor.execute {
+            val result =
+                ATSDeviceDataReader.readCallHistory(contentResolver)
+
+            runOnUiThread {
+                if (
+                    checkSelfPermission(Manifest.permission.READ_CALL_LOG) ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    callHistory.value = result
+                }
+            }
+        }
     }
 
     // Request contacts access when needed
@@ -168,6 +246,7 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             contactsPermissionGranted.value = true
+            loadContacts()
             return
         }
 
@@ -184,6 +263,7 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             callLogPermissionGranted.value = true
+            loadCallHistory()
             return
         }
 
@@ -262,7 +342,7 @@ class MainActivity : ComponentActivity() {
 
                 dialerRoleLauncher.launch(requestIntent)
 
-            } catch (error: Exception) {
+            } catch (_: Exception) {
                 pendingCallNumber = null
 
                 showMessage(
@@ -305,8 +385,8 @@ class MainActivity : ComponentActivity() {
         }
 
         if (
-            checkSelfPermission(Manifest.permission.CALL_PHONE)
-            != PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(Manifest.permission.CALL_PHONE) !=
+            PackageManager.PERMISSION_GRANTED
         ) {
             callPermissionLauncher.launch(
                 Manifest.permission.CALL_PHONE
@@ -329,8 +409,8 @@ class MainActivity : ComponentActivity() {
         }
 
         if (
-            checkSelfPermission(Manifest.permission.CALL_PHONE)
-            != PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(Manifest.permission.CALL_PHONE) !=
+            PackageManager.PERMISSION_GRANTED
         ) {
             pendingCallNumber = null
             showMessage("Call permission is required.")
@@ -357,7 +437,7 @@ class MainActivity : ComponentActivity() {
 
             pendingCallNumber = null
 
-        } catch (error: SecurityException) {
+        } catch (_: SecurityException) {
 
             pendingCallNumber = null
 
@@ -437,5 +517,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshDataPermissions()
+    }
+
+    override fun onDestroy() {
+        deviceDataExecutor.shutdownNow()
+        super.onDestroy()
     }
 }
