@@ -153,22 +153,18 @@ class MainActivity : ComponentActivity() {
                 contacts = contacts.value,
                 callHistory = callHistory.value,
 
-                // Open an existing contact in Android Contacts
                 onOpenContact = { contactId ->
                     openContact(contactId)
                 },
 
-                // Create a new contact
                 onAddContact = { name, number ->
                     addContact(name, number)
                 },
 
-                // Save a number from history or another screen
                 onAddNumberToContacts = { number ->
                     addContact("", number)
                 },
 
-                // Open Android blocked-number management
                 onManageBlockedNumbers = { number ->
                     openBlockedNumbersSettings(number)
                 }
@@ -371,15 +367,20 @@ class MainActivity : ComponentActivity() {
         val cleanNumber = number.trim()
 
         try {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_BLOCKED_NUMBERS_SETTINGS
-            )
+            val telecomManager =
+                getSystemService(TelecomManager::class.java)
+                    ?: throw IllegalStateException(
+                        "Telecom service unavailable"
+                    )
+
+            val intent =
+                telecomManager.createManageBlockedNumbersIntent()
 
             startActivity(intent)
 
             if (cleanNumber.isNotBlank()) {
                 showMessage(
-                    "Review the blocked numbers screen and add or remove $cleanNumber there."
+                    "Review the blocked numbers screen for $cleanNumber."
                 )
             }
 
