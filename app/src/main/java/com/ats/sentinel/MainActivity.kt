@@ -37,6 +37,22 @@ class MainActivity : ComponentActivity() {
     private val callHistory =
         mutableStateOf<List<ATSCallLogEntry>>(emptyList())
 
+    // ---------------------------------------------------------
+    // BLOCKED NUMBERS STATE
+    // ---------------------------------------------------------
+
+    private val blockedNumbers =
+        mutableStateOf<List<ATSBlockedNumber>>(emptyList())
+
+    private val blockingAuditLog =
+        mutableStateOf<List<ATSBlockingAuditEvent>>(emptyList())
+
+    private val blockingDatabaseStatus =
+        mutableStateOf("INITIALIZING")
+
+    private val callScreeningEnabled =
+        mutableStateOf(false)
+
     private val deviceDataExecutor =
         Executors.newSingleThreadExecutor()
 
@@ -83,15 +99,18 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) {
-            if (isCallScreeningRoleHeld()) {
-                showMessage(
-                    "ATS CALL SCREENING ENABLED."
-                )
+            val enabled = isCallScreeningRoleHeld()
+            callScreeningEnabled.value = enabled
+
+            if (enabled) {
+                showMessage("ATS CALL SCREENING ENABLED.")
             } else {
                 showMessage(
                     "Call screening role was not granted. Blocking remains inactive."
                 )
             }
+
+            loadBlockedNumbers()
         }
 
     // ---------------------------------------------------------
@@ -158,6 +177,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         refreshDataPermissions()
+        refreshCallScreeningStatus()
+        loadBlockedNumbers()
         handleDialIntent(intent)
 
         setContent {
@@ -210,6 +231,29 @@ class MainActivity : ComponentActivity() {
 
                 onManageBlockedNumbers = {
                     requestCallScreeningRole()
+                },
+
+                // BLOCKED NUMBERS DATA
+                blockedNumbers = blockedNumbers.value,
+                blockingAuditLog = blockingAuditLog.value,
+                blockingDatabaseStatus = blockingDatabaseStatus.value,
+                callScreeningEnabled = callScreeningEnabled.value,
+
+                // BLOCK / UNBLOCK ACTIONS
+                onBlockNumber = { number ->
+                    blockNumber(number)
+                },
+
+                onUnblockNumber = { number ->
+                    unblockNumber(number)
+                },
+
+                onRequestCallScreening = {
+                    requestCallScreeningRole()
+                },
+
+                onRefreshBlockedNumbers = {
+                    loadBlockedNumbers()
                 }
             )
         }
@@ -402,6 +446,158 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------------------------------------------------------
+    // BLOCKED NUMBERS DATABASE
+    // ---------------------------------------------------------
+
+    private fun loadBlockedNumbers() {
+
+        deviceDataExecutor.execute {
+
+            try {
+                val numbers =
+                    ATSBlockedNumbersStore.getBlockedNumbers(this)
+
+                val audit =
+                    ATSBlockedNumbersStore.getAuditLog(this)
+
+                val status =
+                    ATSBlockedNumbersStore.getDatabaseStatus(this)
+
+                runOnUiThread {
+                    blockedNumbers.value = numbers
+                    blockingAuditLog.value = audit
+                    blockingDatabaseStatus.value = status
+                }
+
+            } catch (error: Exception) {
+
+                runOnUiThread {
+                    blockingDatabaseStatus.value =
+                        "DATABASE ERROR: ${error.message ?: "Unable to load"}"
+
+                    showMessage(
+                        "Unable to load blocked numbers. Check database status."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun blockNumber(rawNumber: String) {
+
+        val number = rawNumber.trim()
+
+        if (number.isBlank() || !number.any { it.isDigit() }) {
+            showMessage("Enter a valid phone number.")
+            return
+        }
+
+        deviceDataExecutor.execute {
+
+            try {
+                val added =
+                    ATSBlockedNumbersStore.blockNumber(
+                        context = this,
+                        rawNumber = number,
+                        source = "MANUAL"
+                    )
+
+                val numbers =
+                    ATSBlockedNumbersStore.getBlockedNumbers(this)
+
+                val audit =
+                    ATSBlockedNumbersStore.getAuditLog(this)
+
+                val status =
+                    ATSBlockedNumbersStore.getDatabaseStatus(this)
+
+                runOnUiThread {
+
+                    blockedNumbers.value = numbers
+                    blockingAuditLog.value = audit
+                    blockingDatabaseStatus.value = status
+
+                    showMessage(
+                        if (added) {
+                            "Number successfully blocked."
+                        } else {
+                            "Number is already blocked."
+                        }
+                    )
+                }
+
+            } catch (error: Exception) {
+
+                runOnUiThread {
+                    blockingDatabaseStatus.value =
+                        "DATABASE ERROR: ${error.message ?: "Block failed"}"
+
+                    showMessage(
+                        "Unable to block number: ${error.message ?: "Database error"}"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun unblockNumber(rawNumber: String) {
+
+        val number = rawNumber.trim()
+
+        if (number.isBlank()) {
+            showMessage("Invalid number.")
+            return
+        }
+
+        deviceDataExecutor.execute {
+
+            try {
+                val removed =
+                    ATSBlockedNumbersStore.unblockNumber(
+                        context = this,
+                        rawNumber = number,
+                        source = "MANUAL"
+                    )
+
+                val numbers =
+                    ATSBlockedNumbersStore.getBlockedNumbers(this)
+
+                val audit =
+                    ATSBlockedNumbersStore.getAuditLog(this)
+
+                val status =
+                    ATSBlockedNumbersStore.getDatabaseStatus(this)
+
+                runOnUiThread {
+
+                    blockedNumbers.value = numbers
+                    blockingAuditLog.value = audit
+                    blockingDatabaseStatus.value = status
+
+                    showMessage(
+                        if (removed) {
+                            "Number successfully unblocked."
+                        } else {
+                            "Number was not found in the blocked list."
+                        }
+                    )
+                }
+
+            } catch (error: Exception) {
+
+                runOnUiThread {
+                    blockingDatabaseStatus.value =
+                        "DATABASE ERROR: ${error.message ?: "Unblock failed"}"
+
+                    showMessage(
+                        "Unable to unblock number: ${error.message ?: "Database error"}"
+                    )
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
     // CALL SCREENING ROLE MANAGEMENT
     // ---------------------------------------------------------
 
@@ -418,6 +614,10 @@ class MainActivity : ComponentActivity() {
         return roleManager.isRoleHeld(
             RoleManager.ROLE_CALL_SCREENING
         )
+    }
+
+    private fun refreshCallScreeningStatus() {
+        callScreeningEnabled.value = isCallScreeningRoleHeld()
     }
 
     private fun requestCallScreeningRole() {
@@ -453,6 +653,7 @@ class MainActivity : ComponentActivity() {
                 RoleManager.ROLE_CALL_SCREENING
             )
         ) {
+            callScreeningEnabled.value = true
             showMessage(
                 "ATS Call Screening is already enabled."
             )
@@ -476,7 +677,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------------------------------------------------------
-    // BLOCKED NUMBERS
+    // BLOCKED NUMBERS SYSTEM SETTINGS
     // ---------------------------------------------------------
 
     private fun openBlockedNumbersSettings(number: String) {
@@ -771,7 +972,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+
         refreshDataPermissions()
+        refreshCallScreeningStatus()
+        loadBlockedNumbers()
     }
 
     override fun onDestroy() {
