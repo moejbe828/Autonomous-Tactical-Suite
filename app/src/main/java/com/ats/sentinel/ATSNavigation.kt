@@ -22,6 +22,7 @@ private val ATSBlue = Color(0xFF00BFFF)
 private val ATSText = Color(0xFFE8F5FF)
 private val ATSMuted = Color(0xFF7895B5)
 private val ATSGreen = Color(0xFF35D69A)
+private val ATSRed = Color(0xFFFF5B6E)
 
 private enum class ATSPage {
     COMMAND,
@@ -31,6 +32,23 @@ private enum class ATSPage {
     CONTACTS,
     HISTORY,
     BLOCKED_NUMBERS
+}
+
+private fun normalizeATSNumber(number: String): String {
+    return number.filter { it.isDigit() }
+}
+
+private fun isATSNumberBlocked(
+    number: String,
+    blockedNumbers: List<ATSBlockedNumber>
+): Boolean {
+    val normalized = normalizeATSNumber(number)
+
+    if (normalized.isBlank()) return false
+
+    return blockedNumbers.any {
+        normalizeATSNumber(it.number) == normalized
+    }
 }
 
 @Composable
@@ -216,7 +234,10 @@ fun ATSNavigationApp(
                         contacts = contacts,
                         onOpenContact = onOpenContact,
                         onPlaceCall = onPlaceCall,
-                        onAddContact = onAddContact
+                        onAddContact = onAddContact,
+                        blockedNumbers = blockedNumbers,
+                        onBlockNumber = onBlockNumber,
+                        onUnblockNumber = onUnblockNumber
                     )
                 }
 
@@ -227,9 +248,9 @@ fun ATSNavigationApp(
                         callHistory = callHistory,
                         onPlaceCall = onPlaceCall,
                         onAddNumberToContacts = onAddNumberToContacts,
-                        onManageBlockedNumbers = {
-                            currentPage = ATSPage.BLOCKED_NUMBERS
-                        }
+                        blockedNumbers = blockedNumbers,
+                        onBlockNumber = onBlockNumber,
+                        onUnblockNumber = onUnblockNumber
                     )
                 }
 
@@ -634,7 +655,10 @@ private fun ContactsScreen(
     contacts: List<ATSContact>,
     onOpenContact: (Long) -> Unit,
     onPlaceCall: (String) -> Unit,
-    onAddContact: (String, String) -> Unit
+    onAddContact: (String, String) -> Unit,
+    blockedNumbers: List<ATSBlockedNumber>,
+    onBlockNumber: (String) -> Unit,
+    onUnblockNumber: (String) -> Unit
 ) {
     var newContactName by remember {
         mutableStateOf("")
@@ -739,6 +763,12 @@ private fun ContactsScreen(
                 items = contacts,
                 key = { it.phoneId }
             ) { contact ->
+
+                val isBlocked = isATSNumberBlocked(
+                    contact.phoneNumber,
+                    blockedNumbers
+                )
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -767,6 +797,17 @@ private fun ContactsScreen(
                             fontSize = 13.sp
                         )
 
+                        Text(
+                            text = if (isBlocked) {
+                                "SECURITY STATUS: BLOCKED"
+                            } else {
+                                "SECURITY STATUS: NOT BLOCKED"
+                            },
+                            color = if (isBlocked) ATSRed else ATSGreen,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -789,6 +830,28 @@ private fun ContactsScreen(
                                 Text("OPEN")
                             }
                         }
+
+                        OutlinedButton(
+                            onClick = {
+                                if (isBlocked) {
+                                    onUnblockNumber(contact.phoneNumber)
+                                } else {
+                                    onBlockNumber(contact.phoneNumber)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (isBlocked) ATSGreen else ATSRed
+                            )
+                        ) {
+                            Text(
+                                if (isBlocked) {
+                                    "UNBLOCK NUMBER"
+                                } else {
+                                    "BLOCK NUMBER"
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -803,7 +866,9 @@ private fun HistoryScreen(
     callHistory: List<ATSCallLogEntry>,
     onPlaceCall: (String) -> Unit,
     onAddNumberToContacts: (String) -> Unit,
-    onManageBlockedNumbers: (String) -> Unit
+    blockedNumbers: List<ATSBlockedNumber>,
+    onBlockNumber: (String) -> Unit,
+    onUnblockNumber: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -851,6 +916,12 @@ private fun HistoryScreen(
                 items = callHistory,
                 key = { it.id }
             ) { entry ->
+
+                val isBlocked = isATSNumberBlocked(
+                    entry.phoneNumber,
+                    blockedNumbers
+                )
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -884,6 +955,17 @@ private fun HistoryScreen(
                             text = "Duration: ${entry.duration}",
                             color = ATSText,
                             fontSize = 11.sp
+                        )
+
+                        Text(
+                            text = if (isBlocked) {
+                                "SECURITY STATUS: BLOCKED"
+                            } else {
+                                "SECURITY STATUS: NOT BLOCKED"
+                            },
+                            color = if (isBlocked) ATSRed else ATSGreen,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
                         )
 
                         HorizontalDivider(
@@ -923,13 +1005,24 @@ private fun HistoryScreen(
 
                         OutlinedButton(
                             onClick = {
-                                onManageBlockedNumbers(
-                                    entry.phoneNumber
-                                )
+                                if (isBlocked) {
+                                    onUnblockNumber(entry.phoneNumber)
+                                } else {
+                                    onBlockNumber(entry.phoneNumber)
+                                }
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (isBlocked) ATSGreen else ATSRed
+                            )
                         ) {
-                            Text("MANAGE BLOCKED NUMBERS")
+                            Text(
+                                if (isBlocked) {
+                                    "UNBLOCK NUMBER"
+                                } else {
+                                    "BLOCK NUMBER"
+                                }
+                            )
                         }
                     }
                 }
