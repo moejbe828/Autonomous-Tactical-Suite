@@ -45,7 +45,11 @@ fun ATSNavigationApp(
     onRequestContactsPermission: () -> Unit = {},
     onRequestCallLogPermission: () -> Unit = {},
     contacts: List<ATSContact> = emptyList(),
-    callHistory: List<ATSCallLogEntry> = emptyList()
+    callHistory: List<ATSCallLogEntry> = emptyList(),
+    onOpenContact: (Long) -> Unit = {},
+    onAddContact: (String, String) -> Unit = { _, _ -> },
+    onAddNumberToContacts: (String) -> Unit = {},
+    onManageBlockedNumbers: (String) -> Unit = {}
 ) {
     var currentPage by remember {
         mutableStateOf(
@@ -131,7 +135,9 @@ fun ATSNavigationApp(
                             menuExpanded = false
                         }
 
-                        HorizontalDivider(color = ATSBlue.copy(alpha = 0.3f))
+                        HorizontalDivider(
+                            color = ATSBlue.copy(alpha = 0.3f)
+                        )
 
                         MenuEntry("DIALER") {
                             currentPage = ATSPage.DIALER
@@ -162,9 +168,15 @@ fun ATSNavigationApp(
 
                 ATSPage.COMMUNICATIONS -> {
                     CommunicationsScreen(
-                        onDialer = { currentPage = ATSPage.DIALER },
-                        onContacts = { currentPage = ATSPage.CONTACTS },
-                        onHistory = { currentPage = ATSPage.HISTORY }
+                        onDialer = {
+                            currentPage = ATSPage.DIALER
+                        },
+                        onContacts = {
+                            currentPage = ATSPage.CONTACTS
+                        },
+                        onHistory = {
+                            currentPage = ATSPage.HISTORY
+                        }
                     )
                 }
 
@@ -175,7 +187,8 @@ fun ATSNavigationApp(
                 ATSPage.DIALER -> {
                     DialerScreen(
                         initialNumber = initialDialNumber,
-                        onPlaceCall = onPlaceCall
+                        onPlaceCall = onPlaceCall,
+                        onAddNumberToContacts = onAddNumberToContacts
                     )
                 }
 
@@ -183,7 +196,10 @@ fun ATSNavigationApp(
                     ContactsScreen(
                         isPermissionGranted = contactsPermissionGranted,
                         onRequestPermission = onRequestContactsPermission,
-                        contacts = contacts
+                        contacts = contacts,
+                        onOpenContact = onOpenContact,
+                        onPlaceCall = onPlaceCall,
+                        onAddContact = onAddContact
                     )
                 }
 
@@ -191,7 +207,10 @@ fun ATSNavigationApp(
                     HistoryScreen(
                         isPermissionGranted = callLogPermissionGranted,
                         onRequestPermission = onRequestCallLogPermission,
-                        callHistory = callHistory
+                        callHistory = callHistory,
+                        onPlaceCall = onPlaceCall,
+                        onAddNumberToContacts = onAddNumberToContacts,
+                        onManageBlockedNumbers = onManageBlockedNumbers
                     )
                 }
             }
@@ -368,8 +387,18 @@ private fun CommunicationsScreen(
             fontSize = 9.sp
         )
 
-        NavigationCard("DIALER", "Keypad and outgoing calls", onDialer)
-        NavigationCard("CONTACTS", "Contact directory and search", onContacts)
+        NavigationCard(
+            "DIALER",
+            "Keypad and outgoing calls",
+            onDialer
+        )
+
+        NavigationCard(
+            "CONTACTS",
+            "Contact directory",
+            onContacts
+        )
+
         NavigationCard(
             "CALL HISTORY",
             "Incoming, outgoing and missed calls",
@@ -452,7 +481,8 @@ private fun IntelligenceScreen() {
 @Composable
 private fun DialerScreen(
     initialNumber: String,
-    onPlaceCall: (String) -> Unit
+    onPlaceCall: (String) -> Unit,
+    onAddNumberToContacts: (String) -> Unit
 ) {
     var number by remember(initialNumber) {
         mutableStateOf(initialNumber)
@@ -487,7 +517,9 @@ private fun DialerScreen(
         )
 
         keys.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
                 row.forEach { key ->
                     OutlinedButton(
                         onClick = { number += key },
@@ -505,7 +537,7 @@ private fun DialerScreen(
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
@@ -523,6 +555,16 @@ private fun DialerScreen(
             }
         }
 
+        OutlinedButton(
+            onClick = {
+                onAddNumberToContacts(number)
+            },
+            enabled = number.any { it.isDigit() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("ADD TO CONTACTS")
+        }
+
         Text(
             text = "ATS will request default dialer status and call permission before placing a call.",
             color = ATSMuted,
@@ -535,8 +577,19 @@ private fun DialerScreen(
 private fun ContactsScreen(
     isPermissionGranted: Boolean,
     onRequestPermission: () -> Unit,
-    contacts: List<ATSContact>
+    contacts: List<ATSContact>,
+    onOpenContact: (Long) -> Unit,
+    onPlaceCall: (String) -> Unit,
+    onAddContact: (String, String) -> Unit
 ) {
+    var newContactName by remember {
+        mutableStateOf("")
+    }
+
+    var newContactNumber by remember {
+        mutableStateOf("")
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -555,11 +608,51 @@ private fun ContactsScreen(
                 "CONTACT DIRECTORY",
                 if (isPermissionGranted) "ACCESS GRANTED" else "ACCESS REQUIRED",
                 if (isPermissionGranted)
-                    "${contacts.size} contacts loaded from this device"
+                    "${contacts.size} phone entries loaded from this device"
                 else
                     "Permission is required to read device contacts.",
                 if (isPermissionGranted) ATSGreen else ATSMuted
             )
+        }
+
+        item {
+            Text(
+                text = "CREATE NEW CONTACT",
+                color = ATSBlue,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            OutlinedTextField(
+                value = newContactName,
+                onValueChange = { newContactName = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Name") },
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = newContactNumber,
+                onValueChange = { newContactNumber = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Phone number") },
+                singleLine = true
+            )
+
+            Button(
+                onClick = {
+                    onAddContact(
+                        newContactName.trim(),
+                        newContactNumber.trim()
+                    )
+                    newContactName = ""
+                    newContactNumber = ""
+                },
+                enabled = newContactNumber.any { it.isDigit() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("CREATE CONTACT")
+            }
         }
 
         if (!isPermissionGranted) {
@@ -579,22 +672,37 @@ private fun ContactsScreen(
                 )
             }
         } else {
+            item {
+                Text(
+                    text = "SAVED CONTACTS",
+                    color = ATSBlue,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+
             items(
                 items = contacts,
-                key = { it.phoneNumber }
+                key = { it.phoneId }
             ) { contact ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onOpenContact(contact.contactId)
+                        },
                     colors = CardDefaults.cardColors(
                         containerColor = ATSSurface
                     )
                 ) {
                     Column(
                         modifier = Modifier.padding(15.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         Text(
-                            text = contact.name,
+                            text = contact.name.ifBlank {
+                                "UNKNOWN CONTACT"
+                            },
                             color = ATSText,
                             fontWeight = FontWeight.Bold
                         )
@@ -604,6 +712,29 @@ private fun ContactsScreen(
                             color = ATSBlue,
                             fontSize = 13.sp
                         )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    onPlaceCall(contact.phoneNumber)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("CALL")
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    onOpenContact(contact.contactId)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("OPEN")
+                            }
+                        }
                     }
                 }
             }
@@ -615,7 +746,10 @@ private fun ContactsScreen(
 private fun HistoryScreen(
     isPermissionGranted: Boolean,
     onRequestPermission: () -> Unit,
-    callHistory: List<ATSCallLogEntry>
+    callHistory: List<ATSCallLogEntry>,
+    onPlaceCall: (String) -> Unit,
+    onAddNumberToContacts: (String) -> Unit,
+    onManageBlockedNumbers: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -661,7 +795,7 @@ private fun HistoryScreen(
         } else {
             items(
                 items = callHistory,
-                key = { "${it.phoneNumber}_${it.date}_${it.callType}" }
+                key = { it.id }
             ) { entry ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -671,10 +805,12 @@ private fun HistoryScreen(
                 ) {
                     Column(
                         modifier = Modifier.padding(15.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         Text(
-                            text = entry.name,
+                            text = entry.name.ifBlank {
+                                "UNKNOWN NUMBER"
+                            },
                             color = ATSText,
                             fontWeight = FontWeight.Bold
                         )
@@ -695,6 +831,52 @@ private fun HistoryScreen(
                             color = ATSText,
                             fontSize = 11.sp
                         )
+
+                        HorizontalDivider(
+                            color = ATSBlue.copy(alpha = 0.2f)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    onPlaceCall(entry.phoneNumber)
+                                },
+                                enabled = entry.phoneNumber.any {
+                                    it.isDigit()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("CALL")
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    onAddNumberToContacts(
+                                        entry.phoneNumber
+                                    )
+                                },
+                                enabled = entry.phoneNumber.any {
+                                    it.isDigit()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("SAVE")
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                onManageBlockedNumbers(
+                                    entry.phoneNumber
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("MANAGE BLOCKED NUMBERS")
+                        }
                     }
                 }
             }
@@ -717,7 +899,9 @@ private fun NavigationCard(
         ),
         shape = RoundedCornerShape(15.dp)
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column(
+            modifier = Modifier.padding(18.dp)
+        ) {
             Text(
                 text = title,
                 color = ATSBlue,
