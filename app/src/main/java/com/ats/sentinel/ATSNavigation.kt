@@ -29,7 +29,8 @@ private enum class ATSPage {
     INTELLIGENCE,
     DIALER,
     CONTACTS,
-    HISTORY
+    HISTORY,
+    BLOCKED_NUMBERS
 }
 
 @Composable
@@ -49,7 +50,15 @@ fun ATSNavigationApp(
     onOpenContact: (Long) -> Unit = {},
     onAddContact: (String, String) -> Unit = { _, _ -> },
     onAddNumberToContacts: (String) -> Unit = {},
-    onManageBlockedNumbers: (String) -> Unit = {}
+    onManageBlockedNumbers: (String) -> Unit = {},
+    blockedNumbers: List<ATSBlockedNumber> = emptyList(),
+    blockingAuditLog: List<ATSBlockingAuditEvent> = emptyList(),
+    blockingDatabaseStatus: String = "NOT LOADED",
+    callScreeningEnabled: Boolean = false,
+    onBlockNumber: (String) -> Unit = {},
+    onUnblockNumber: (String) -> Unit = {},
+    onRequestCallScreening: () -> Unit = {},
+    onRefreshBlockedNumbers: () -> Unit = {}
 ) {
     var currentPage by remember {
         mutableStateOf(
@@ -153,6 +162,11 @@ fun ATSNavigationApp(
                             currentPage = ATSPage.HISTORY
                             menuExpanded = false
                         }
+
+                        MenuEntry("BLOCKED NUMBERS") {
+                            currentPage = ATSPage.BLOCKED_NUMBERS
+                            menuExpanded = false
+                        }
                     }
                 }
             }
@@ -176,6 +190,9 @@ fun ATSNavigationApp(
                         },
                         onHistory = {
                             currentPage = ATSPage.HISTORY
+                        },
+                        onBlockedNumbers = {
+                            currentPage = ATSPage.BLOCKED_NUMBERS
                         }
                     )
                 }
@@ -210,7 +227,22 @@ fun ATSNavigationApp(
                         callHistory = callHistory,
                         onPlaceCall = onPlaceCall,
                         onAddNumberToContacts = onAddNumberToContacts,
-                        onManageBlockedNumbers = onManageBlockedNumbers
+                        onManageBlockedNumbers = {
+                            currentPage = ATSPage.BLOCKED_NUMBERS
+                        }
+                    )
+                }
+
+                ATSPage.BLOCKED_NUMBERS -> {
+                    ATSBlockedNumbersScreen(
+                        blockedNumbers = blockedNumbers,
+                        auditLog = blockingAuditLog,
+                        databaseStatus = blockingDatabaseStatus,
+                        callScreeningEnabled = callScreeningEnabled,
+                        onBlockNumber = onBlockNumber,
+                        onUnblockNumber = onUnblockNumber,
+                        onRequestCallScreening = onRequestCallScreening,
+                        onRefresh = onRefreshBlockedNumbers
                     )
                 }
             }
@@ -365,7 +397,8 @@ private fun CommandCenterScreen(
 private fun CommunicationsScreen(
     onDialer: () -> Unit,
     onContacts: () -> Unit,
-    onHistory: () -> Unit
+    onHistory: () -> Unit,
+    onBlockedNumbers: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -403,6 +436,12 @@ private fun CommunicationsScreen(
             "CALL HISTORY",
             "Incoming, outgoing and missed calls",
             onHistory
+        )
+
+        NavigationCard(
+            "BLOCKED NUMBERS",
+            "Manage blocked callers and security events",
+            onBlockedNumbers
         )
 
         StatusPanel(
