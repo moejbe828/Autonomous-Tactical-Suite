@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,7 +43,9 @@ fun ATSNavigationApp(
     contactsPermissionGranted: Boolean = false,
     callLogPermissionGranted: Boolean = false,
     onRequestContactsPermission: () -> Unit = {},
-    onRequestCallLogPermission: () -> Unit = {}
+    onRequestCallLogPermission: () -> Unit = {},
+    contacts: List<ATSContact> = emptyList(),
+    callHistory: List<ATSCallLogEntry> = emptyList()
 ) {
     var currentPage by remember {
         mutableStateOf(
@@ -73,19 +76,14 @@ fun ATSNavigationApp(
                 .fillMaxSize()
                 .background(ATSBackground)
         ) {
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF091525))
-                    .padding(
-                        horizontal = 20.dp,
-                        vertical = 15.dp
-                    ),
+                    .padding(horizontal = 20.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-
                 Column {
                     Text(
                         text = "ATS",
@@ -109,22 +107,14 @@ fun ATSNavigationApp(
                         color = ATSBlue,
                         fontSize = 34.sp,
                         modifier = Modifier
-                            .clickable {
-                                menuExpanded = true
-                            }
-                            .padding(
-                                horizontal = 12.dp,
-                                vertical = 2.dp
-                            )
+                            .clickable { menuExpanded = true }
+                            .padding(horizontal = 12.dp, vertical = 2.dp)
                     )
 
                     DropdownMenu(
                         expanded = menuExpanded,
-                        onDismissRequest = {
-                            menuExpanded = false
-                        },
-                        modifier = Modifier
-                            .background(ATSSurface)
+                        onDismissRequest = { menuExpanded = false },
+                        modifier = Modifier.background(ATSSurface)
                     ) {
                         MenuEntry("COMMAND CENTER") {
                             currentPage = ATSPage.COMMAND
@@ -141,9 +131,7 @@ fun ATSNavigationApp(
                             menuExpanded = false
                         }
 
-                        HorizontalDivider(
-                            color = ATSBlue.copy(alpha = 0.3f)
-                        )
+                        HorizontalDivider(color = ATSBlue.copy(alpha = 0.3f))
 
                         MenuEntry("DIALER") {
                             currentPage = ATSPage.DIALER
@@ -164,7 +152,6 @@ fun ATSNavigationApp(
             }
 
             when (currentPage) {
-
                 ATSPage.COMMAND -> {
                     CommandCenterScreen(
                         isOrbRunning = isOrbRunning,
@@ -175,15 +162,9 @@ fun ATSNavigationApp(
 
                 ATSPage.COMMUNICATIONS -> {
                     CommunicationsScreen(
-                        onDialer = {
-                            currentPage = ATSPage.DIALER
-                        },
-                        onContacts = {
-                            currentPage = ATSPage.CONTACTS
-                        },
-                        onHistory = {
-                            currentPage = ATSPage.HISTORY
-                        }
+                        onDialer = { currentPage = ATSPage.DIALER },
+                        onContacts = { currentPage = ATSPage.CONTACTS },
+                        onHistory = { currentPage = ATSPage.HISTORY }
                     )
                 }
 
@@ -201,14 +182,16 @@ fun ATSNavigationApp(
                 ATSPage.CONTACTS -> {
                     ContactsScreen(
                         isPermissionGranted = contactsPermissionGranted,
-                        onRequestPermission = onRequestContactsPermission
+                        onRequestPermission = onRequestContactsPermission,
+                        contacts = contacts
                     )
                 }
 
                 ATSPage.HISTORY -> {
                     HistoryScreen(
                         isPermissionGranted = callLogPermissionGranted,
-                        onRequestPermission = onRequestCallLogPermission
+                        onRequestPermission = onRequestCallLogPermission,
+                        callHistory = callHistory
                     )
                 }
             }
@@ -385,18 +368,8 @@ private fun CommunicationsScreen(
             fontSize = 9.sp
         )
 
-        NavigationCard(
-            "DIALER",
-            "Keypad and outgoing calls",
-            onDialer
-        )
-
-        NavigationCard(
-            "CONTACTS",
-            "Contact directory and search",
-            onContacts
-        )
-
+        NavigationCard("DIALER", "Keypad and outgoing calls", onDialer)
+        NavigationCard("CONTACTS", "Contact directory and search", onContacts)
         NavigationCard(
             "CALL HISTORY",
             "Incoming, outgoing and missed calls",
@@ -514,14 +487,10 @@ private fun DialerScreen(
         )
 
         keys.forEach { row ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 row.forEach { key ->
                     OutlinedButton(
-                        onClick = {
-                            number += key
-                        },
+                        onClick = { number += key },
                         modifier = Modifier.size(76.dp),
                         shape = RoundedCornerShape(24.dp)
                     ) {
@@ -540,18 +509,14 @@ private fun DialerScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
-                onClick = {
-                    number = number.dropLast(1)
-                },
+                onClick = { number = number.dropLast(1) },
                 enabled = number.isNotEmpty()
             ) {
                 Text("DELETE")
             }
 
             Button(
-                onClick = {
-                    onPlaceCall(number)
-                },
+                onClick = { onPlaceCall(number) },
                 enabled = number.any { it.isDigit() }
             ) {
                 Text("CALL")
@@ -569,37 +534,78 @@ private fun DialerScreen(
 @Composable
 private fun ContactsScreen(
     isPermissionGranted: Boolean,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    contacts: List<ATSContact>
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = "CONTACTS",
-            color = ATSBlue,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
-        )
+        item {
+            Text(
+                text = "CONTACTS",
+                color = ATSBlue,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
 
-        StatusPanel(
-            "CONTACT DIRECTORY",
-            if (isPermissionGranted) "PERMISSION GRANTED" else "ACCESS REQUIRED",
-            if (isPermissionGranted)
-                "Device access enabled. Contact data integration is next."
-            else
-                "ATS needs your permission to read contacts stored on this device.",
-            if (isPermissionGranted) ATSGreen else ATSMuted
-        )
+            StatusPanel(
+                "CONTACT DIRECTORY",
+                if (isPermissionGranted) "ACCESS GRANTED" else "ACCESS REQUIRED",
+                if (isPermissionGranted)
+                    "${contacts.size} contacts loaded from this device"
+                else
+                    "Permission is required to read device contacts.",
+                if (isPermissionGranted) ATSGreen else ATSMuted
+            )
+        }
 
         if (!isPermissionGranted) {
-            Button(
-                onClick = onRequestPermission,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("GRANT CONTACTS ACCESS")
+            item {
+                Button(
+                    onClick = onRequestPermission,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("GRANT CONTACTS ACCESS")
+                }
+            }
+        } else if (contacts.isEmpty()) {
+            item {
+                Text(
+                    text = "NO CONTACTS FOUND",
+                    color = ATSMuted
+                )
+            }
+        } else {
+            items(
+                items = contacts,
+                key = { it.phoneNumber }
+            ) { contact ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = ATSSurface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(15.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            text = contact.name,
+                            color = ATSText,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = contact.phoneNumber,
+                            color = ATSBlue,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
             }
         }
     }
@@ -608,37 +614,89 @@ private fun ContactsScreen(
 @Composable
 private fun HistoryScreen(
     isPermissionGranted: Boolean,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    callHistory: List<ATSCallLogEntry>
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = "CALL HISTORY",
-            color = ATSBlue,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
-        )
+        item {
+            Text(
+                text = "CALL HISTORY",
+                color = ATSBlue,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
 
-        StatusPanel(
-            "CALL LOG",
-            if (isPermissionGranted) "PERMISSION GRANTED" else "ACCESS REQUIRED",
-            if (isPermissionGranted)
-                "Device access enabled. Call history integration is next."
-            else
-                "ATS needs your permission to read the device call history.",
-            if (isPermissionGranted) ATSGreen else ATSMuted
-        )
+            StatusPanel(
+                "DEVICE CALL LOG",
+                if (isPermissionGranted) "ACCESS GRANTED" else "ACCESS REQUIRED",
+                if (isPermissionGranted)
+                    "${callHistory.size} recent call records loaded"
+                else
+                    "Permission is required to read device call history.",
+                if (isPermissionGranted) ATSGreen else ATSMuted
+            )
+        }
 
         if (!isPermissionGranted) {
-            Button(
-                onClick = onRequestPermission,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("GRANT CALL LOG ACCESS")
+            item {
+                Button(
+                    onClick = onRequestPermission,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("GRANT CALL LOG ACCESS")
+                }
+            }
+        } else if (callHistory.isEmpty()) {
+            item {
+                Text(
+                    text = "NO CALL RECORDS FOUND",
+                    color = ATSMuted
+                )
+            }
+        } else {
+            items(
+                items = callHistory,
+                key = { "${it.phoneNumber}_${it.date}_${it.callType}" }
+            ) { entry ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = ATSSurface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(15.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            text = entry.name,
+                            color = ATSText,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = entry.phoneNumber,
+                            color = ATSBlue
+                        )
+
+                        Text(
+                            text = "${entry.callType}  •  ${entry.date}",
+                            color = ATSMuted,
+                            fontSize = 11.sp
+                        )
+
+                        Text(
+                            text = "Duration: ${entry.duration}",
+                            color = ATSText,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
         }
     }
@@ -659,9 +717,7 @@ private fun NavigationCard(
         ),
         shape = RoundedCornerShape(15.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp)
-        ) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Text(
                 text = title,
                 color = ATSBlue,
