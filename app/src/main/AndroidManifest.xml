@@ -1,3 +1,4 @@
+
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -67,13 +68,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- ACTION_DIAL without a number -->
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- ACTION_DIAL with a telephone number -->
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -121,6 +120,19 @@
             <meta-data
                 android:name="android.telecom.IN_CALL_SERVICE_RINGING"
                 android:value="false" />
+
+        </service>
+
+        <!-- ATS Secure Incoming Call Screening -->
+        <service
+            android:name=".ATSCallScreeningService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
 
         </service>
 
