@@ -516,6 +516,21 @@ private fun DialerScreen(
             modifier = Modifier.padding(18.dp)
         )
 
+        OutlinedButton(
+            onClick = {
+                if (number.isEmpty()) {
+                    number = "+"
+                }
+            },
+            enabled = number.isEmpty()
+        ) {
+            Text(
+                text = "+",
+                color = ATSBlue,
+                fontSize = 24.sp
+            )
+        }
+
         keys.forEach { row ->
             Row(
                 horizontalArrangement = Arrangement.spacedBy(18.dp)
