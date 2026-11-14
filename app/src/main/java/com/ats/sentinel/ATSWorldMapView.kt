@@ -30,10 +30,10 @@ import kotlin.math.sin
  * ATS TACTICAL GEOINT MAP
  *
  * Offline-first vector map with optional NASA GIBS imagery.
- * Carrier/network intelligence is shown as unavailable until
- * connected to a verified data provider.
+ * Telecom and network layers are not presented as real data
+ * until verified data providers are integrated.
  *
- * This view does not locate callers and does not connect to satellites.
+ * This view does not locate callers or connect to satellites.
  */
 class ATSWorldMapView(context: Context) : View(context) {
 
@@ -48,8 +48,12 @@ class ATSWorldMapView(context: Context) : View(context) {
     private var satelliteBitmap: Bitmap? = null
     private var highlightedCountry = ""
 
+    @Volatile
     private var loadingCountries = true
+
+    @Volatile
     private var loadingSatellite = false
+
     private var countryLoadFailed = false
     private var satelliteLoadFailed = false
 
@@ -88,7 +92,7 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     private val satelliteTintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(95, 0, 15, 38)
+        color = Color.argb(55, 0, 15, 38)
     }
 
     private val landPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -192,7 +196,7 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     // ---------------------------------------------------------
-    // PUBLIC API - KEEP EXISTING INTEGRATION METHODS
+    // PUBLIC API - EXISTING INTEGRATION METHODS
     // ---------------------------------------------------------
 
     fun setHighlightedCountry(isoCode: String?) {
@@ -205,9 +209,11 @@ class ATSWorldMapView(context: Context) : View(context) {
 
     fun setSatelliteLayerEnabled(enabled: Boolean) {
         satelliteLayerEnabled = enabled
+
         if (enabled && satelliteBitmap == null && !loadingSatellite) {
             loadSatelliteImagery()
         }
+
         invalidate()
     }
 
@@ -226,10 +232,6 @@ class ATSWorldMapView(context: Context) : View(context) {
         invalidate()
     }
 
-    /**
-     * These two layers remain visibly unavailable until real,
-     * source-backed telecom/network datasets are integrated.
-     */
     fun setTelecomLayerEnabled(enabled: Boolean) {
         telecomLayerEnabled = enabled
         invalidate()
@@ -266,6 +268,7 @@ class ATSWorldMapView(context: Context) : View(context) {
                     countryCache.readText()
                 } else {
                     val downloaded = downloadText(COUNTRY_GEOJSON_URL)
+
                     require(downloaded.length > MIN_COUNTRY_CACHE_BYTES) {
                         "Country dataset is incomplete"
                     }
@@ -274,12 +277,14 @@ class ATSWorldMapView(context: Context) : View(context) {
                         context.filesDir,
                         "$COUNTRY_CACHE_NAME.tmp"
                     )
+
                     temporary.writeText(downloaded)
 
                     if (!temporary.renameTo(countryCache)) {
                         temporary.copyTo(countryCache, overwrite = true)
                         temporary.delete()
                     }
+
                     downloaded
                 }
 
@@ -287,13 +292,17 @@ class ATSWorldMapView(context: Context) : View(context) {
 
                 post {
                     loadingCountries = false
-                    countryLoadFailed = countries.isEmpty()
+                    countryLoadFailed = synchronized(countries) {
+                        countries.isEmpty()
+                    }
                     invalidate()
                 }
             } catch (_: Exception) {
                 post {
                     loadingCountries = false
-                    countryLoadFailed = countries.isEmpty()
+                    countryLoadFailed = synchronized(countries) {
+                        countries.isEmpty()
+                    }
                     invalidate()
                 }
             }
@@ -301,40 +310,51 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     // ---------------------------------------------------------
-    // OPTIONAL SATELLITE IMAGERY - MAX 5 MB CACHE
+    // OPTIONAL SATELLITE IMAGERY
+    // STRICT 5 MB IMAGE CACHE
     // ---------------------------------------------------------
 
     private fun loadSatelliteImagery() {
         if (loadingSatellite) return
+
         loadingSatellite = true
         satelliteLoadFailed = false
         invalidate()
 
         Thread({
-            var loaded: Bitmap? = null
+            var resultBitmap: Bitmap? = null
 
             try {
                 if (
                     satelliteCache.exists() &&
                     satelliteCache.length() in 20_000L..MAX_SATELLITE_CACHE_BYTES
                 ) {
-                    loaded = BitmapFactory.decodeFile(
+                    resultBitmap = BitmapFactory.decodeFile(
                         satelliteCache.absolutePath
                     )
                 }
 
-                if (loaded == null) {
-                    loaded = downloadSatelliteImage()
+                if (resultBitmap == null) {
+                    resultBitmap = downloadSatelliteImage()
                 }
 
+                val finalBitmap = resultBitmap
+
                 post {
-                    satelliteBitmap?.takeIf { it !== loaded }?.recycle()
-                    satelliteBitmap = loaded
+                    val oldBitmap = satelliteBitmap
+
+                    if (oldBitmap !== finalBitmap) {
+                        oldBitmap?.takeIf { !it.isRecycled }?.recycle()
+                    }
+
+                    satelliteBitmap = finalBitmap
                     loadingSatellite = false
-                    satelliteLoadFailed = loaded == null
+                    satelliteLoadFailed = finalBitmap == null
                     invalidate()
                 }
             } catch (_: Exception) {
+                resultBitmap?.takeIf { !it.isRecycled }?.recycle()
+
                 post {
                     loadingSatellite = false
                     satelliteLoadFailed = true
@@ -369,12 +389,18 @@ class ATSWorldMapView(context: Context) : View(context) {
                 BitmapFactory.decodeStream(it)
             } ?: return null
 
-            val compressed = compressWithinLimit(bitmap)
-            bitmap.recycle()
+            val compressed = try {
+                compressWithinLimit(bitmap)
+            } finally {
+                if (!bitmap.isRecycled) {
+                    bitmap.recycle()
+                }
+            }
 
             if (compressed == null) return null
 
             cacheDirectory.mkdirs()
+
             val temporary = File(
                 cacheDirectory,
                 "$SATELLITE_CACHE_NAME.tmp"
@@ -387,12 +413,27 @@ class ATSWorldMapView(context: Context) : View(context) {
                 return null
             }
 
+            /*
+             * This directory is dedicated to the satellite image.
+             * Remove only old image/temp files, never the country database.
+             */
+            if (satelliteCache.exists()) {
+                satelliteCache.delete()
+            }
+
             if (!temporary.renameTo(satelliteCache)) {
                 temporary.copyTo(satelliteCache, overwrite = true)
                 temporary.delete()
             }
 
             enforceSatelliteCacheLimit()
+
+            if (
+                !satelliteCache.exists() ||
+                satelliteCache.length() > MAX_SATELLITE_CACHE_BYTES
+            ) {
+                return null
+            }
 
             return BitmapFactory.decodeFile(satelliteCache.absolutePath)
         } finally {
@@ -402,20 +443,22 @@ class ATSWorldMapView(context: Context) : View(context) {
 
     private fun compressWithinLimit(bitmap: Bitmap): ByteArray? {
         var quality = 82
-        var result: ByteArray
 
         while (quality >= 35) {
             val output = ByteArrayOutputStream()
+
             bitmap.compress(
                 Bitmap.CompressFormat.JPEG,
                 quality,
                 output
             )
-            result = output.toByteArray()
+
+            val result = output.toByteArray()
 
             if (result.size <= MAX_SATELLITE_CACHE_BYTES) {
                 return result
             }
+
             quality -= 10
         }
 
@@ -423,22 +466,27 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     /**
-     * The imagery cache has a strict total budget of 5 MB.
-     * Temporary and old ATS imagery files are removed if necessary.
-     * The country GeoJSON database is not stored in this cache.
+     * The image cache contains only the optional satellite image.
+     * The maximum allowed size is 5 MB.
+     * The country GeoJSON file is stored separately in filesDir.
      */
     private fun enforceSatelliteCacheLimit() {
         if (!cacheDirectory.exists()) return
 
-        val files = cacheDirectory.listFiles()?.toList().orEmpty()
-        var total = files.sumOf { it.length() }
+        val temporary = File(
+            cacheDirectory,
+            "$SATELLITE_CACHE_NAME.tmp"
+        )
 
-        if (total <= MAX_SATELLITE_CACHE_BYTES) return
+        if (temporary.exists()) {
+            temporary.delete()
+        }
 
-        files.sortedBy { it.lastModified() }.forEach { file ->
-            if (total <= MAX_SATELLITE_CACHE_BYTES) return@forEach
-            val size = file.length()
-            if (file.delete()) total -= size
+        if (
+            satelliteCache.exists() &&
+            satelliteCache.length() > MAX_SATELLITE_CACHE_BYTES
+        ) {
+            satelliteCache.delete()
         }
     }
 
@@ -497,6 +545,7 @@ class ATSWorldMapView(context: Context) : View(context) {
 
             when (type) {
                 "Polygon" -> appendPolygon(combinedPath, coordinates)
+
                 "MultiPolygon" -> {
                     for (i in 0 until coordinates.length()) {
                         val polygon = coordinates.optJSONArray(i) ?: continue
@@ -522,8 +571,11 @@ class ATSWorldMapView(context: Context) : View(context) {
                 .trim()
                 .uppercase(Locale.ROOT)
 
-            if (value.length == 2 && value != "-99") return value
+            if (value.length == 2 && value != "-99") {
+                return value
+            }
         }
+
         return ""
     }
 
@@ -545,7 +597,9 @@ class ATSWorldMapView(context: Context) : View(context) {
                 if (
                     longitude.isNaN() || latitude.isNaN() ||
                     longitude.isInfinite() || latitude.isInfinite()
-                ) continue
+                ) {
+                    continue
+                }
 
                 val x = ((longitude + 180.0) / 360.0).toFloat()
                 val y = ((90.0 - latitude) / 180.0).toFloat()
@@ -572,14 +626,21 @@ class ATSWorldMapView(context: Context) : View(context) {
     private fun calculateMapRect() {
         val availableWidth = width.toFloat()
         val availableHeight = height.toFloat()
+
         if (availableWidth <= 0f || availableHeight <= 0f) return
 
         val mapWidth = min(availableWidth, availableHeight * 2f)
         val mapHeight = mapWidth / 2f
+
         val left = (availableWidth - mapWidth) / 2f
         val top = (availableHeight - mapHeight) / 2f
 
-        mapRect.set(left, top, left + mapWidth, top + mapHeight)
+        mapRect.set(
+            left,
+            top,
+            left + mapWidth,
+            top + mapHeight
+        )
 
         mapMatrix.setValues(
             floatArrayOf(
@@ -593,6 +654,7 @@ class ATSWorldMapView(context: Context) : View(context) {
     private fun constrainPan() {
         val limitX = mapRect.width() * (zoom - 1f) / 2f
         val limitY = mapRect.height() * (zoom - 1f) / 2f
+
         panX = panX.coerceIn(-limitX, limitX)
         panY = panY.coerceIn(-limitY, limitY)
     }
@@ -605,17 +667,22 @@ class ATSWorldMapView(context: Context) : View(context) {
         super.onDraw(canvas)
 
         canvas.drawRect(
-            0f, 0f, width.toFloat(), height.toFloat(),
+            0f,
+            0f,
+            width.toFloat(),
+            height.toFloat(),
             backgroundPaint
         )
 
         drawBackgroundGrid(canvas)
         calculateMapRect()
+
         if (mapRect.isEmpty) return
 
         val save = canvas.save()
 
         canvas.translate(panX, panY)
+
         canvas.scale(
             zoom,
             zoom,
@@ -625,9 +692,17 @@ class ATSWorldMapView(context: Context) : View(context) {
 
         drawSatelliteLayer(canvas)
 
-        if (gridLayerEnabled) drawGeographicGrid(canvas)
-        if (boundariesLayerEnabled) drawCountries(canvas)
-        if (radarLayerEnabled) drawRadarSweep(canvas)
+        if (gridLayerEnabled) {
+            drawGeographicGrid(canvas)
+        }
+
+        if (boundariesLayerEnabled) {
+            drawCountries(canvas)
+        }
+
+        if (radarLayerEnabled) {
+            drawRadarSweep(canvas)
+        }
 
         canvas.restoreToCount(save)
 
@@ -647,13 +722,22 @@ class ATSWorldMapView(context: Context) : View(context) {
         var x = 0f
 
         while (x < width) {
-            canvas.drawLine(x, 0f, x, height.toFloat(), gridPaint)
+            canvas.drawLine(
+                x, 0f,
+                x, height.toFloat(),
+                gridPaint
+            )
             x += step
         }
 
         var y = 0f
+
         while (y < height) {
-            canvas.drawLine(0f, y, width.toFloat(), y, gridPaint)
+            canvas.drawLine(
+                0f, y,
+                width.toFloat(), y,
+                gridPaint
+            )
             y += step
         }
     }
@@ -666,30 +750,72 @@ class ATSWorldMapView(context: Context) : View(context) {
             bitmap != null &&
             !bitmap.isRecycled
         ) {
-            canvas.drawBitmap(bitmap, null, mapRect, satellitePaint)
-            canvas.drawRect(mapRect, satelliteTintPaint)
+            canvas.drawBitmap(
+                bitmap,
+                null,
+                mapRect,
+                satellitePaint
+            )
+
+            canvas.drawRect(
+                mapRect,
+                satelliteTintPaint
+            )
         } else {
-            canvas.drawRect(mapRect, landPaint)
+            canvas.drawRect(
+                mapRect,
+                landPaint
+            )
         }
     }
 
     private fun drawGeographicGrid(canvas: Canvas) {
         for (i in 1 until 12) {
             val x = mapRect.left + mapRect.width() * i / 12f
-            canvas.drawLine(x, mapRect.top, x, mapRect.bottom, gridPaint)
+
+            canvas.drawLine(
+                x,
+                mapRect.top,
+                x,
+                mapRect.bottom,
+                gridPaint
+            )
         }
 
         for (i in 1 until 6) {
             val y = mapRect.top + mapRect.height() * i / 6f
-            canvas.drawLine(mapRect.left, y, mapRect.right, y, gridPaint)
+
+            canvas.drawLine(
+                mapRect.left,
+                y,
+                mapRect.right,
+                y,
+                gridPaint
+            )
         }
     }
 
     private fun drawCountries(canvas: Canvas) {
-        val snapshot = synchronized(countries) { countries.toList() }
+        val snapshot = synchronized(countries) {
+            countries.toList()
+        }
+
+        val hasSatelliteImage =
+            satelliteLayerEnabled &&
+            satelliteBitmap != null &&
+            !satelliteBitmap!!.isRecycled
+
+        landPaint.color = if (hasSatelliteImage) {
+            Color.argb(55, 8, 31, 55)
+        } else {
+            Color.rgb(8, 31, 55)
+        }
 
         for (country in snapshot) {
-            country.path.transform(mapMatrix, screenPath)
+            country.path.transform(
+                mapMatrix,
+                screenPath
+            )
 
             if (country.isoCode == highlightedCountry) {
                 canvas.drawPath(screenPath, selectedGlowPaint)
@@ -705,7 +831,11 @@ class ATSWorldMapView(context: Context) : View(context) {
     private fun drawRadarSweep(canvas: Canvas) {
         val centerX = mapRect.centerX()
         val centerY = mapRect.centerY()
-        val radius = min(mapRect.width(), mapRect.height()) * 0.43f
+
+        val radius = min(
+            mapRect.width(),
+            mapRect.height()
+        ) * 0.43f
 
         val radarRect = RectF(
             centerX - radius,
@@ -719,13 +849,18 @@ class ATSWorldMapView(context: Context) : View(context) {
         canvas.drawCircle(centerX, centerY, radius * 0.33f, radarPaint)
 
         canvas.drawLine(
-            centerX - radius, centerY,
-            centerX + radius, centerY,
+            centerX - radius,
+            centerY,
+            centerX + radius,
+            centerY,
             radarPaint
         )
+
         canvas.drawLine(
-            centerX, centerY - radius,
-            centerX, centerY + radius,
+            centerX,
+            centerY - radius,
+            centerX,
+            centerY + radius,
             radarPaint
         )
 
@@ -733,13 +868,21 @@ class ATSWorldMapView(context: Context) : View(context) {
         sweep.moveTo(centerX, centerY)
         sweep.arcTo(radarRect, radarAngle, 34f, false)
         sweep.close()
+
         canvas.drawPath(sweep, radarSweepPaint)
 
         val angle = Math.toRadians(radarAngle.toDouble())
+
         val endX = centerX + cos(angle).toFloat() * radius
         val endY = centerY + sin(angle).toFloat() * radius
 
-        canvas.drawLine(centerX, centerY, endX, endY, panelBorderPaint)
+        canvas.drawLine(
+            centerX,
+            centerY,
+            endX,
+            endY,
+            panelBorderPaint
+        )
     }
 
     // ---------------------------------------------------------
@@ -748,12 +891,14 @@ class ATSWorldMapView(context: Context) : View(context) {
 
     private fun drawHud(canvas: Canvas) {
         val margin = 9f * density
-        val panelWidth = min(width * 0.63f, 220f * density)
+        val panelWidth = min(width * 0.58f, 220f * density)
         val panelHeight = 91f * density
 
         val panel = RectF(
-            margin, margin,
-            margin + panelWidth, margin + panelHeight
+            margin,
+            margin,
+            margin + panelWidth,
+            margin + panelHeight
         )
 
         drawPanel(canvas, panel)
@@ -761,35 +906,51 @@ class ATSWorldMapView(context: Context) : View(context) {
         val x = panel.left + 10f * density
         var y = panel.top + 15f * density
 
-        canvas.drawText("ATS // GEOINT COMMAND", x, y, primaryText)
+        canvas.drawText(
+            "ATS // GEOINT COMMAND",
+            x,
+            y,
+            primaryText
+        )
+
         y += 14f * density
 
         canvas.drawText(
             countryStatus(),
-            x, y,
+            x,
+            y,
             if (countryLoadFailed) warningText else secondaryText
         )
+
         y += 12f * density
 
         canvas.drawText(
             satelliteStatus(),
-            x, y,
+            x,
+            y,
             if (satelliteLoadFailed) warningText else secondaryText
         )
+
         y += 12f * density
 
         canvas.drawText(
             "TELECOM INTEL: ${if (telecomLayerEnabled) "NO DATA" else "STANDBY"}",
-            x, y, warningText
+            x,
+            y,
+            warningText
         )
+
         y += 12f * density
 
         canvas.drawText(
             "NETWORK INTEL: ${if (networkLayerEnabled) "NO DATA" else "STANDBY"}",
-            x, y, warningText
+            x,
+            y,
+            warningText
         )
 
         val statusWidth = 92f * density
+
         val status = RectF(
             width - statusWidth - margin,
             margin,
@@ -798,12 +959,14 @@ class ATSWorldMapView(context: Context) : View(context) {
         )
 
         drawPanel(canvas, status)
+
         canvas.drawText(
             "MAP STATUS",
             status.left + 7f * density,
             status.top + 14f * density,
             secondaryText
         )
+
         canvas.drawText(
             if (countryLoadFailed) "LIMITED" else "GEOINT",
             status.left + 7f * density,
@@ -832,45 +995,95 @@ class ATSWorldMapView(context: Context) : View(context) {
         drawPanel(canvas, panel)
 
         val x = panel.left + 8f * density
+        val markerX = panel.right - 28f * density
         var y = panel.top + 13f * density
 
-        canvas.drawText("INTELLIGENCE LAYERS", x, y, primaryText)
+        canvas.drawText(
+            "INTELLIGENCE LAYERS",
+            x,
+            y,
+            primaryText
+        )
+
         y += lineHeight
 
-        drawLayerLine(canvas, x, y, "SATELLITE IMAGERY", satelliteLayerEnabled)
+        drawLayerLine(
+            canvas, x, markerX, y,
+            "SATELLITE IMAGERY",
+            satelliteLayerEnabled
+        )
+
         y += lineHeight
-        drawLayerLine(canvas, x, y, "COUNTRY BOUNDARIES", boundariesLayerEnabled)
+
+        drawLayerLine(
+            canvas, x, markerX, y,
+            "COUNTRY BOUNDARIES",
+            boundariesLayerEnabled
+        )
+
         y += lineHeight
-        drawLayerLine(canvas, x, y, "TELECOM DATA", false, unavailable = true)
+
+        drawLayerLine(
+            canvas, x, markerX, y,
+            "TELECOM DATA",
+            false,
+            unavailable = true
+        )
+
         y += lineHeight
-        drawLayerLine(canvas, x, y, "NETWORK DATA", false, unavailable = true)
+
+        drawLayerLine(
+            canvas, x, markerX, y,
+            "NETWORK DATA",
+            false,
+            unavailable = true
+        )
+
         y += lineHeight
 
         canvas.drawText(
-            if (regionalLayerEnabled) "REGIONAL: NO DATA" else "REGIONAL: STANDBY",
-            x, y, warningText
+            if (regionalLayerEnabled) {
+                "REGIONAL: NO DATA"
+            } else {
+                "REGIONAL: STANDBY"
+            },
+            x,
+            y,
+            warningText
         )
     }
 
     private fun drawLayerLine(
         canvas: Canvas,
         x: Float,
+        markerX: Float,
         y: Float,
         label: String,
         enabled: Boolean,
         unavailable: Boolean = false
     ) {
-        val marker = if (unavailable) "N/A" else if (enabled) "ON" else "OFF"
+        val marker = when {
+            unavailable -> "N/A"
+            enabled -> "ON"
+            else -> "OFF"
+        }
+
         val paint = when {
             unavailable -> warningText
             enabled -> activeText
             else -> secondaryText
         }
 
-        canvas.drawText(label, x, y, secondaryText)
+        canvas.drawText(
+            label,
+            x,
+            y,
+            secondaryText
+        )
+
         canvas.drawText(
             marker,
-            width - 52f * density,
+            markerX,
             y,
             paint
         )
@@ -878,6 +1091,7 @@ class ATSWorldMapView(context: Context) : View(context) {
 
     private fun drawCountryProfile(canvas: Canvas) {
         val margin = 9f * density
+
         val panel = RectF(
             margin,
             height - 68f * density,
@@ -893,12 +1107,14 @@ class ATSWorldMapView(context: Context) : View(context) {
             panel.top + 14f * density,
             secondaryText
         )
+
         canvas.drawText(
             highlightedCountry,
             panel.left + 8f * density,
             panel.top + 31f * density,
             primaryText
         )
+
         canvas.drawText(
             "NUMBERING DATA: NOT LINKED",
             panel.left + 8f * density,
@@ -909,11 +1125,19 @@ class ATSWorldMapView(context: Context) : View(context) {
 
     private fun drawPanel(canvas: Canvas, rect: RectF) {
         canvas.drawRoundRect(
-            rect, 4f * density, 4f * density, panelPaint
+            rect,
+            4f * density,
+            4f * density,
+            panelPaint
         )
+
         canvas.drawRoundRect(
-            rect, 4f * density, 4f * density, panelBorderPaint
+            rect,
+            4f * density,
+            4f * density,
+            panelBorderPaint
         )
+
         canvas.drawRect(
             rect.left,
             rect.top,
@@ -956,13 +1180,18 @@ class ATSWorldMapView(context: Context) : View(context) {
             val dy = if (y == mapRect.top) 1f else -1f
 
             canvas.drawLine(
-                x + dx * offset, y,
-                x + dx * (length + offset), y,
+                x + dx * offset,
+                y,
+                x + dx * (length + offset),
+                y,
                 panelBorderPaint
             )
+
             canvas.drawLine(
-                x, y + dy * offset,
-                x, y + dy * (length + offset),
+                x,
+                y + dy * offset,
+                x,
+                y + dy * (length + offset),
                 panelBorderPaint
             )
         }
@@ -971,13 +1200,20 @@ class ATSWorldMapView(context: Context) : View(context) {
     private fun drawFooter(canvas: Canvas) {
         val y = height - 8f * density
 
-        val source = if (satelliteBitmap != null && satelliteLayerEnabled) {
+        val source = if (
+            satelliteBitmap != null && satelliteLayerEnabled
+        ) {
             "NASA GIBS IMAGERY | NATURAL EARTH BOUNDARIES"
         } else {
             "NATURAL EARTH VECTOR DATA"
         }
 
-        canvas.drawText(source, 9f * density, y, secondaryText)
+        canvas.drawText(
+            source,
+            9f * density,
+            y,
+            secondaryText
+        )
 
         val warning = "NOT LIVE CALLER LOCATION"
         val warningWidth = warningText.measureText(warning)
@@ -991,7 +1227,9 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     private fun formatCacheDate(): String {
-        if (!satelliteCache.exists()) return "NOT CACHED"
+        if (!satelliteCache.exists()) {
+            return "NOT CACHED"
+        }
 
         return SimpleDateFormat(
             "yyyy-MM-dd",
@@ -1017,18 +1255,22 @@ class ATSWorldMapView(context: Context) : View(context) {
                 if (!scaleDetector.isInProgress && zoom > 1f) {
                     panX += event.x - lastX
                     panY += event.y - lastY
+
                     constrainPan()
                     invalidate()
                 }
 
                 lastX = event.x
                 lastY = event.y
+
                 return true
             }
 
             MotionEvent.ACTION_POINTER_UP,
             MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_CANCEL -> return true
+            MotionEvent.ACTION_CANCEL -> {
+                return true
+            }
         }
 
         return true
@@ -1050,11 +1292,16 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     companion object {
-        private const val MAX_SATELLITE_CACHE_BYTES = 5L * 1024L * 1024L
+        private const val MAX_SATELLITE_CACHE_BYTES =
+            5L * 1024L * 1024L
+
         private const val MIN_COUNTRY_CACHE_BYTES = 10_000L
 
-        private const val COUNTRY_CACHE_NAME = "ats_world_countries.geojson"
-        private const val SATELLITE_CACHE_NAME = "ats_nasa_global_satellite.jpg"
+        private const val COUNTRY_CACHE_NAME =
+            "ats_world_countries.geojson"
+
+        private const val SATELLITE_CACHE_NAME =
+            "ats_nasa_global_satellite.jpg"
 
         private const val COUNTRY_GEOJSON_URL =
             "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson"
