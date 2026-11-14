@@ -32,12 +32,13 @@ private enum class ATSPage {
     DIALER,
     CONTACTS,
     HISTORY,
-    BLOCKED_NUMBERS
+    BLOCKED_NUMBERS,
+    SIM_NETWORK_DIAGNOSTICS
 }
 
 /**
- * Uses the same centralized number normalization
- * as the encrypted blocking database and call screening.
+ * Uses centralized number normalization
+ * shared with the encrypted blocking database.
  */
 private fun isATSNumberBlocked(
     context: android.content.Context,
@@ -91,7 +92,8 @@ fun ATSNavigationApp(
     onBlockNumber: (String) -> Unit = {},
     onUnblockNumber: (String) -> Unit = {},
     onRequestCallScreening: () -> Unit = {},
-    onRefreshBlockedNumbers: () -> Unit = {}
+    onRefreshBlockedNumbers: () -> Unit = {},
+    countryDiagnostics: ATSCountryDiagnostics? = null
 ) {
     var currentPage by remember {
         mutableStateOf(
@@ -200,6 +202,11 @@ fun ATSNavigationApp(
                             currentPage = ATSPage.BLOCKED_NUMBERS
                             menuExpanded = false
                         }
+
+                        MenuEntry("SIM & NETWORK DIAGNOSTICS") {
+                            currentPage = ATSPage.SIM_NETWORK_DIAGNOSTICS
+                            menuExpanded = false
+                        }
                     }
                 }
             }
@@ -281,6 +288,12 @@ fun ATSNavigationApp(
                         onRefresh = onRefreshBlockedNumbers
                     )
                 }
+
+                ATSPage.SIM_NETWORK_DIAGNOSTICS -> {
+                    SIMNetworkDiagnosticsScreen(
+                        diagnostics = countryDiagnostics
+                    )
+                }
             }
         }
     }
@@ -334,19 +347,19 @@ private fun CommandCenterScreen(
 
         item {
             StatusPanel(
-                title = "SYSTEM STATUS",
-                value = "OPERATIONAL",
-                detail = "ATS core interface initialized",
-                statusColor = ATSGreen
+                "SYSTEM STATUS",
+                "OPERATIONAL",
+                "ATS core interface initialized",
+                ATSGreen
             )
         }
 
         item {
             StatusPanel(
-                title = "HOLO GRID",
-                value = if (isOrbRunning) "RUNNING" else "STANDBY",
-                detail = "Floating tactical interface",
-                statusColor = if (isOrbRunning) ATSGreen else ATSBlue
+                "HOLO GRID",
+                if (isOrbRunning) "RUNNING" else "STANDBY",
+                "Floating tactical interface",
+                if (isOrbRunning) ATSGreen else ATSBlue
             )
 
             Row(
@@ -545,10 +558,141 @@ private fun IntelligenceScreen() {
 
         item {
             Text(
-                text = "ATS displays only information it can verify. It will not claim to identify a caller's location or identity from a phone number alone.",
+                text = "ATS displays only information it can verify. " +
+                    "It will not claim to identify a caller's location " +
+                    "or identity from a phone number alone.",
                 color = ATSMuted,
                 fontSize = 11.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun SIMNetworkDiagnosticsScreen(
+    diagnostics: ATSCountryDiagnostics?
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(
+                text = "SIM & NETWORK DIAGNOSTICS",
+                color = ATSBlue,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+
+            Text(
+                text = "DEVICE TELEPHONY INFORMATION",
+                color = ATSMuted,
+                fontSize = 9.sp
+            )
+        }
+
+        if (diagnostics == null) {
+            item {
+                StatusPanel(
+                    "DIAGNOSTICS STATUS",
+                    "WAITING FOR DATA",
+                    "Country diagnostics have not been loaded yet.",
+                    ATSMuted
+                )
+            }
+        } else {
+            item {
+                StatusPanel(
+                    "SELECTED COUNTRY",
+                    diagnostics.countryIso?.uppercase() ?: "NONE",
+                    "Selected source: ${diagnostics.countrySource}",
+                    if (diagnostics.countryIso.isNullOrBlank())
+                        ATSMuted else ATSGreen
+                )
+            }
+
+            item {
+                StatusPanel(
+                    "SIM COUNTRY",
+                    diagnostics.simCountryIso?.uppercase()
+                        ?: "NOT AVAILABLE",
+                    "Country reported by the SIM card",
+                    ATSBlue
+                )
+            }
+
+            item {
+                StatusPanel(
+                    "NETWORK COUNTRY",
+                    diagnostics.networkCountryIso?.uppercase()
+                        ?: "NOT AVAILABLE",
+                    "Country reported by the connected network",
+                    ATSBlue
+                )
+            }
+
+            item {
+                StatusPanel(
+                    "DEVICE LOCALE COUNTRY",
+                    diagnostics.deviceLocaleCountryIso?.uppercase()
+                        ?: "NOT AVAILABLE",
+                    "Device regional setting; not proof of SIM location",
+                    ATSMuted
+                )
+            }
+
+            item {
+                StatusPanel(
+                    "ROAMING STATUS",
+                    when (diagnostics.roaming) {
+                        true -> "ROAMING"
+                        false -> "NOT ROAMING"
+                        null -> "UNKNOWN"
+                    },
+                    "Reported by Android telephony services",
+                    when (diagnostics.roaming) {
+                        true -> ATSBlue
+                        false -> ATSGreen
+                        null -> ATSMuted
+                    }
+                )
+            }
+
+            item {
+                StatusPanel(
+                    "SIM STATE",
+                    diagnostics.simState.uppercase(),
+                    "SIM availability and readiness",
+                    if (diagnostics.simState.equals("READY", true))
+                        ATSGreen else ATSMuted
+                )
+            }
+
+            item {
+                StatusPanel(
+                    "TELEPHONY SERVICE",
+                    if (diagnostics.telephonyAvailable)
+                        "AVAILABLE" else "UNAVAILABLE",
+                    "Android telephony service availability",
+                    if (diagnostics.telephonyAvailable)
+                        ATSGreen else ATSMuted
+                )
+            }
+
+            item {
+                Text(
+                    text = "SIM country is a supporting diagnostic only. " +
+                        "International numbers must be analyzed using ATS " +
+                        "global numbering data, not inferred from the SIM " +
+                        "country. Country codes do not verify caller identity " +
+                        "or location.",
+                    color = ATSMuted,
+                    fontSize = 10.sp
+                )
+            }
         }
     }
 }
@@ -593,9 +737,7 @@ private fun DialerScreen(
 
         OutlinedButton(
             onClick = {
-                if (number.isEmpty()) {
-                    number = "+"
-                }
+                if (number.isEmpty()) number = "+"
             },
             enabled = number.isEmpty()
         ) {
@@ -677,13 +819,8 @@ private fun ContactsScreen(
 ) {
     val context = LocalContext.current
 
-    var newContactName by remember {
-        mutableStateOf("")
-    }
-
-    var newContactNumber by remember {
-        mutableStateOf("")
-    }
+    var newContactName by remember { mutableStateOf("") }
+    var newContactNumber by remember { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier
@@ -701,7 +838,8 @@ private fun ContactsScreen(
 
             StatusPanel(
                 "CONTACT DIRECTORY",
-                if (isPermissionGranted) "ACCESS GRANTED" else "ACCESS REQUIRED",
+                if (isPermissionGranted) "ACCESS GRANTED"
+                else "ACCESS REQUIRED",
                 if (isPermissionGranted)
                     "${contacts.size} phone entries loaded from this device"
                 else
@@ -780,7 +918,6 @@ private fun ContactsScreen(
                 items = contacts,
                 key = { it.phoneId }
             ) { contact ->
-
                 val isBlocked = isATSNumberBlocked(
                     context,
                     contact.phoneNumber,
@@ -816,11 +953,10 @@ private fun ContactsScreen(
                         )
 
                         Text(
-                            text = if (isBlocked) {
+                            text = if (isBlocked)
                                 "SECURITY STATUS: BLOCKED"
-                            } else {
-                                "SECURITY STATUS: NOT BLOCKED"
-                            },
+                            else
+                                "SECURITY STATUS: NOT BLOCKED",
                             color = if (isBlocked) ATSRed else ATSGreen,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -859,15 +995,13 @@ private fun ContactsScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (isBlocked) ATSGreen else ATSRed
+                                contentColor = if (isBlocked)
+                                    ATSGreen else ATSRed
                             )
                         ) {
                             Text(
-                                if (isBlocked) {
-                                    "UNBLOCK NUMBER"
-                                } else {
-                                    "BLOCK NUMBER"
-                                }
+                                if (isBlocked) "UNBLOCK NUMBER"
+                                else "BLOCK NUMBER"
                             )
                         }
                     }
@@ -906,7 +1040,8 @@ private fun HistoryScreen(
 
             StatusPanel(
                 "DEVICE CALL LOG",
-                if (isPermissionGranted) "ACCESS GRANTED" else "ACCESS REQUIRED",
+                if (isPermissionGranted) "ACCESS GRANTED"
+                else "ACCESS REQUIRED",
                 if (isPermissionGranted)
                     "${callHistory.size} recent call records loaded"
                 else
@@ -936,7 +1071,6 @@ private fun HistoryScreen(
                 items = callHistory,
                 key = { it.id }
             ) { entry ->
-
                 val isBlocked = isATSNumberBlocked(
                     context,
                     entry.phoneNumber,
@@ -979,11 +1113,10 @@ private fun HistoryScreen(
                         )
 
                         Text(
-                            text = if (isBlocked) {
+                            text = if (isBlocked)
                                 "SECURITY STATUS: BLOCKED"
-                            } else {
-                                "SECURITY STATUS: NOT BLOCKED"
-                            },
+                            else
+                                "SECURITY STATUS: NOT BLOCKED",
                             color = if (isBlocked) ATSRed else ATSGreen,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -1034,15 +1167,13 @@ private fun HistoryScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (isBlocked) ATSGreen else ATSRed
+                                contentColor = if (isBlocked)
+                                    ATSGreen else ATSRed
                             )
                         ) {
                             Text(
-                                if (isBlocked) {
-                                    "UNBLOCK NUMBER"
-                                } else {
-                                    "BLOCK NUMBER"
-                                }
+                                if (isBlocked) "UNBLOCK NUMBER"
+                                else "BLOCK NUMBER"
                             )
                         }
                     }
