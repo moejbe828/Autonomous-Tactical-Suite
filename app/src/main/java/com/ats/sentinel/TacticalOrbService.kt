@@ -46,6 +46,7 @@ class TacticalOrbService : Service() {
 
     private var orbContainer: FrameLayout? = null
     private var holoView: HoloGridView? = null
+    private var satelliteView: SatelliteIconView? = null
     private var added = false
 
     private val handler = Handler(Looper.getMainLooper())
@@ -70,6 +71,20 @@ class TacticalOrbService : Service() {
             "ATS AI voice input will be enabled in the next phase",
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    // Synchronize satellite visibility with the call session.
+    private val trackScanSyncRunnable = object : Runnable {
+        override fun run() {
+            if (!added) return
+
+            val callActive = ATSCallSession.isTrackScanCallActive
+
+            satelliteView?.visibility =
+                if (callActive) View.VISIBLE else View.GONE
+
+            handler.postDelayed(this, 250L)
+        }
     }
 
     private fun dp(value: Int): Int {
@@ -164,6 +179,36 @@ class TacticalOrbService : Service() {
             )
         )
 
+        // Separate satellite touch target.
+        // It does not replace or cover the main orb touch listener.
+        val satellite = SatelliteIconView(this).apply {
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = false
+
+            setOnClickListener {
+                if (ATSCallSession.isTrackScanCallActive) {
+                    ATSCallSession.toggleTrackScan()
+                }
+            }
+        }
+
+        satelliteView = satellite
+
+        val satelliteParams = FrameLayout.LayoutParams(
+            dp(30),
+            dp(30),
+            Gravity.BOTTOM or Gravity.START
+        ).apply {
+            leftMargin = dp(2)
+            bottomMargin = dp(1)
+        }
+
+        container.addView(
+            satellite,
+            satelliteParams
+        )
+
         val params = WindowManager.LayoutParams(
             dp(72),
             dp(72),
@@ -179,7 +224,7 @@ class TacticalOrbService : Service() {
         }
 
         // -------------------------------------
-        // TOUCH, DRAG AND LONG PRESS
+        // MAIN ORB TOUCH, DRAG AND LONG PRESS
         // -------------------------------------
 
         val touchListener =
@@ -253,6 +298,9 @@ class TacticalOrbService : Service() {
                             openATS()
                         }
 
+                        isDragging = false
+                        isLongPress = false
+
                         true
                     }
 
@@ -272,6 +320,8 @@ class TacticalOrbService : Service() {
                 }
             }
 
+        // Only the main holographic surface receives the old orb listener.
+        // The satellite child handles its own independent clicks.
         holo.setOnTouchListener(touchListener)
 
         try {
@@ -283,6 +333,9 @@ class TacticalOrbService : Service() {
 
             orbContainer = container
             added = true
+
+            handler.removeCallbacks(trackScanSyncRunnable)
+            handler.post(trackScanSyncRunnable)
 
         } catch (_: Exception) {
 
@@ -304,7 +357,7 @@ class TacticalOrbService : Service() {
             ).apply {
                 flags =
                     Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
 
             startActivity(intent)
@@ -328,6 +381,7 @@ class TacticalOrbService : Service() {
         handler.removeCallbacksAndMessages(null)
 
         holoView?.stopAnimation()
+        satelliteView?.stopAnimation()
 
         if (added) {
             try {
@@ -340,6 +394,7 @@ class TacticalOrbService : Service() {
 
         added = false
         holoView = null
+        satelliteView = null
         orbContainer = null
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -354,6 +409,158 @@ class TacticalOrbService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
+    }
+
+    // =========================================
+    // SATELLITE INTELLIGENCE ICON
+    // =========================================
+
+    private class SatelliteIconView(
+        context: Context
+    ) : View(context) {
+
+        private val blue = Color.rgb(0, 190, 255)
+        private val brightBlue = Color.rgb(125, 235, 255)
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        private var pulse = 0f
+
+        private val animator =
+            ValueAnimator.ofFloat(0f, 1f).apply {
+
+                duration = 1100L
+                repeatCount = ValueAnimator.INFINITE
+                repeatMode = ValueAnimator.REVERSE
+                interpolator = LinearInterpolator()
+
+                addUpdateListener {
+                    pulse = it.animatedValue as Float
+                    invalidate()
+                }
+            }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+
+            if (!animator.isStarted) {
+                animator.start()
+            }
+        }
+
+        fun stopAnimation() {
+            animator.cancel()
+        }
+
+        override fun onDetachedFromWindow() {
+            animator.cancel()
+            super.onDetachedFromWindow()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+
+            val cx = width / 2f
+            val cy = height / 2f
+
+            // Pulsing outer waves.
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.2f
+            paint.color = brightBlue
+            paint.alpha = (55 + pulse * 130).toInt()
+
+            canvas.drawCircle(
+                cx,
+                cy,
+                8f + pulse * 3f,
+                paint
+            )
+
+            paint.alpha = (35 + (1f - pulse) * 100).toInt()
+
+            canvas.drawCircle(
+                cx,
+                cy,
+                12f + (1f - pulse) * 3f,
+                paint
+            )
+
+            // Satellite central body.
+            paint.style = Paint.Style.FILL
+            paint.color = brightBlue
+            paint.alpha = 255
+
+            canvas.drawCircle(
+                cx,
+                cy,
+                2.7f,
+                paint
+            )
+
+            // Satellite solar panels.
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.8f
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.color = brightBlue
+            paint.alpha = 255
+
+            canvas.drawLine(
+                cx - 8f,
+                cy - 3f,
+                cx - 3f,
+                cy + 1f,
+                paint
+            )
+
+            canvas.drawLine(
+                cx + 3f,
+                cy - 1f,
+                cx + 8f,
+                cy + 3f,
+                paint
+            )
+
+            canvas.drawLine(
+                cx - 8f,
+                cy - 3f,
+                cx - 10f,
+                cy + 2f,
+                paint
+            )
+
+            canvas.drawLine(
+                cx + 8f,
+                cy + 3f,
+                cx + 10f,
+                cy - 2f,
+                paint
+            )
+
+            // Antenna signal.
+            paint.strokeWidth = 1.2f
+
+            canvas.drawArc(
+                cx - 6f,
+                cy - 10f,
+                cx + 6f,
+                cy + 2f,
+                220f,
+                100f,
+                false,
+                paint
+            )
+
+            paint.style = Paint.Style.FILL
+            paint.color = blue
+            paint.alpha = 100
+
+            canvas.drawCircle(
+                cx,
+                cy,
+                13f,
+                paint
+            )
+        }
     }
 
     // =========================================
@@ -430,10 +637,6 @@ class TacticalOrbService : Service() {
             drawOrbitParticles(canvas, cx, cy, radius)
         }
 
-        // -------------------------------------
-        // AMBIENT LIGHT
-        // -------------------------------------
-
         private fun drawAmbientGlow(
             canvas: Canvas,
             cx: Float,
@@ -465,10 +668,6 @@ class TacticalOrbService : Service() {
 
             paint.shader = null
         }
-
-        // -------------------------------------
-        // ROTATING ORBITAL RINGS
-        // -------------------------------------
 
         private fun drawOrbitalRings(
             canvas: Canvas,
@@ -503,10 +702,6 @@ class TacticalOrbService : Service() {
                 canvas.restoreToCount(save)
             }
         }
-
-        // -------------------------------------
-        // SPHERE BODY
-        // -------------------------------------
 
         private fun drawSphere(
             canvas: Canvas,
@@ -552,10 +747,6 @@ class TacticalOrbService : Service() {
             )
         }
 
-        // -------------------------------------
-        // LONGITUDE AND LATITUDE GRID
-        // -------------------------------------
-
         private fun drawSphereGrid(
             canvas: Canvas,
             cx: Float,
@@ -574,8 +765,6 @@ class TacticalOrbService : Service() {
 
             val save = canvas.save()
             canvas.clipPath(clip)
-
-            // Longitude lines
 
             for (line in -5..5) {
 
@@ -603,8 +792,6 @@ class TacticalOrbService : Service() {
                     paint
                 )
             }
-
-            // Latitude lines
 
             for (line in -4..4) {
 
@@ -634,10 +821,6 @@ class TacticalOrbService : Service() {
 
             canvas.restoreToCount(save)
         }
-
-        // -------------------------------------
-        // SURFACE LIGHTS
-        // -------------------------------------
 
         private fun drawSurfaceLights(
             canvas: Canvas,
@@ -690,10 +873,6 @@ class TacticalOrbService : Service() {
             }
         }
 
-        // -------------------------------------
-        // CENTRAL PULSING CORE
-        // -------------------------------------
-
         private fun drawCore(
             canvas: Canvas,
             cx: Float,
@@ -744,10 +923,6 @@ class TacticalOrbService : Service() {
                 paint
             )
         }
-
-        // -------------------------------------
-        // MOVING ORBIT PARTICLES
-        // -------------------------------------
 
         private fun drawOrbitParticles(
             canvas: Canvas,
