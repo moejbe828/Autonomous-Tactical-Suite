@@ -3,6 +3,7 @@ package com.ats.sentinel
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.telecom.Call
 import android.view.Gravity
@@ -12,23 +13,49 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 class ATSTrackScanOverlay(
     private val context: Context,
     private val windowManager: WindowManager
 ) {
+
+    // ---------------------------------------------------------
+    // EXECUTION
+    // ---------------------------------------------------------
+
     private val worker = Executors.newSingleThreadExecutor()
+
     private val mainHandler = android.os.Handler(
         android.os.Looper.getMainLooper()
     )
+
+    @Volatile
+    private var destroyed = false
+
+    private var scanGeneration = 0L
+
+    // ---------------------------------------------------------
+    // WINDOW
+    // ---------------------------------------------------------
 
     private var root: LinearLayout? = null
     private var mapView: ATSWorldMapView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
 
+    private var added = false
+
+    private var lastX = Int.MIN_VALUE
+    private var lastY = Int.MIN_VALUE
+
+    // ---------------------------------------------------------
+    // UI COMPONENTS
+    // ---------------------------------------------------------
+
     private var callerNameView: TextView? = null
     private var numberView: TextView? = null
     private var statusView: TextView? = null
+
     private var countryView: TextView? = null
     private var codeView: TextView? = null
     private var typeView: TextView? = null
@@ -37,17 +64,23 @@ class ATSTrackScanOverlay(
     private var confidenceView: TextView? = null
     private var sourceView: TextView? = null
 
+    // ---------------------------------------------------------
+    // ANALYSIS STATE
+    // ---------------------------------------------------------
+
     private var lastNumber = ""
     private var currentReport: ATSTrackScanReport? = null
-    private var added = false
-    private var lastX = Int.MIN_VALUE
-    private var lastY = Int.MIN_VALUE
 
     private val density =
         context.resources.displayMetrics.density
 
-    private fun dp(value: Int): Int =
-        (value * density).toInt()
+    private fun dp(value: Int): Int {
+        return (value * density).toInt()
+    }
+
+    // ---------------------------------------------------------
+    // PUBLIC SYNCHRONIZATION
+    // ---------------------------------------------------------
 
     fun sync(
         callActive: Boolean,
@@ -58,27 +91,54 @@ class ATSTrackScanOverlay(
         orbX: Int,
         orbY: Int
     ) {
+        if (destroyed) return
+
         if (!callActive || !visible) {
             hide()
             return
         }
 
-        if (!added) createWindow()
+        if (!added) {
+            createWindow()
+        }
+
+        if (!added) return
 
         updatePosition(orbX, orbY)
-        updateCallDetails(callerName, callerNumber, callState)
+
+        updateCallDetails(
+            callerName,
+            callerNumber,
+            callState
+        )
+
         analyzeIfNeeded(callerNumber)
     }
 
+    // ---------------------------------------------------------
+    // WINDOW CREATION
+    // ---------------------------------------------------------
+
     private fun createWindow() {
-        if (added) return
+        if (added || destroyed) return
 
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+
+            setPadding(
+                dp(12),
+                dp(10),
+                dp(12),
+                dp(10)
+            )
+
             background = roundedBackground()
+
             clipToPadding = true
+            clipChildren = true
         }
+
+        // HEADER
 
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -88,18 +148,32 @@ class ATSTrackScanOverlay(
         val title = TextView(context).apply {
             text = "ATS TRACK SCAN"
             textSize = 14f
-            setTextColor(Color.rgb(105, 225, 255))
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+
+            setTextColor(
+                Color.rgb(105, 225, 255)
+            )
+
+            typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.08f
         }
 
         val close = TextView(context).apply {
             text = "×"
             textSize = 26f
+
             setTextColor(Color.WHITE)
+
             gravity = Gravity.CENTER
-            setPadding(dp(12), 0, dp(4), 0)
+
+            setPadding(
+                dp(12),
+                0,
+                dp(4),
+                0
+            )
+
             isClickable = true
+
             setOnClickListener {
                 ATSCallSession.isTrackScanVisible = false
                 hide()
@@ -108,31 +182,55 @@ class ATSTrackScanOverlay(
 
         header.addView(
             title,
-            LinearLayout.LayoutParams(0, dp(34), 1f)
+            LinearLayout.LayoutParams(
+                0,
+                dp(34),
+                1f
+            )
         )
+
         header.addView(
             close,
-            LinearLayout.LayoutParams(dp(36), dp(34))
+            LinearLayout.LayoutParams(
+                dp(36),
+                dp(34)
+            )
         )
 
         panel.addView(header)
 
+        // CALLER INFORMATION
+
         callerNameView = makeText(
-            "UNKNOWN CALLER", 12f, Color.WHITE, true
+            "UNKNOWN CALLER",
+            12f,
+            Color.WHITE,
+            true
         )
+
         numberView = makeText(
-            "NUMBER PENDING", 11f, Color.rgb(130, 190, 220)
+            "NUMBER PENDING",
+            11f,
+            Color.rgb(130, 190, 220)
         )
+
         statusView = makeText(
-            "SCANNING CALL", 10f, Color.rgb(0, 205, 255), true
+            "SCANNING CALL",
+            10f,
+            Color.rgb(0, 205, 255),
+            true
         )
 
         panel.addView(callerNameView)
         panel.addView(numberView)
         panel.addView(statusView)
 
+        // DIVIDER
+
         val divider = View(context).apply {
-            setBackgroundColor(Color.rgb(0, 95, 145))
+            setBackgroundColor(
+                Color.rgb(0, 95, 145)
+            )
         }
 
         panel.addView(
@@ -146,22 +244,62 @@ class ATSTrackScanOverlay(
             }
         )
 
+        // SCROLLABLE CONTENT
+
         val scroll = ScrollView(context).apply {
             isFillViewport = false
-            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+
+            overScrollMode =
+                View.OVER_SCROLL_IF_CONTENT_SCROLLS
         }
 
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
 
-        countryView = addInfoRow(content, "COUNTRY", "ANALYZING")
-        codeView = addInfoRow(content, "CALLING CODE", "—")
-        typeView = addInfoRow(content, "NUMBER TYPE", "—")
-        carrierView = addInfoRow(content, "ORIGINAL CARRIER", "—")
-        riskView = addInfoRow(content, "RISK ASSESSMENT", "—")
-        confidenceView = addInfoRow(content, "CONFIDENCE", "—")
-        sourceView = addInfoRow(content, "DATA SOURCE", "—")
+        countryView = addInfoRow(
+            content,
+            "COUNTRY",
+            "ANALYZING"
+        )
+
+        codeView = addInfoRow(
+            content,
+            "CALLING CODE",
+            "—"
+        )
+
+        typeView = addInfoRow(
+            content,
+            "NUMBER TYPE",
+            "—"
+        )
+
+        carrierView = addInfoRow(
+            content,
+            "ORIGINAL CARRIER",
+            "—"
+        )
+
+        riskView = addInfoRow(
+            content,
+            "RISK ASSESSMENT",
+            "—"
+        )
+
+        confidenceView = addInfoRow(
+            content,
+            "CONFIDENCE",
+            "—"
+        )
+
+        sourceView = addInfoRow(
+            content,
+            "DATA SOURCE",
+            "—"
+        )
+
+        // MAP HEADER
 
         content.addView(
             makeText(
@@ -171,6 +309,8 @@ class ATSTrackScanOverlay(
                 true
             )
         )
+
+        // ATS WORLD MAP
 
         mapView = ATSWorldMapView(context)
 
@@ -183,6 +323,8 @@ class ATSTrackScanOverlay(
                 topMargin = dp(5)
             }
         )
+
+        // LOCATION DISCLAIMER
 
         content.addView(
             makeText(
@@ -203,48 +345,85 @@ class ATSTrackScanOverlay(
             )
         )
 
+        // WINDOW PARAMETERS
+
         val params = WindowManager.LayoutParams(
             dp(270),
             dp(390),
+
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
+
             x = dp(95)
             y = dp(30)
         }
 
         try {
-            windowManager.addView(panel, params)
+            windowManager.addView(
+                panel,
+                params
+            )
+
             root = panel
             layoutParams = params
+
             added = true
+
+            lastX = Int.MIN_VALUE
+            lastY = Int.MIN_VALUE
+
         } catch (_: Exception) {
             root = null
             layoutParams = null
+            mapView = null
+
             added = false
         }
     }
+
+    // ---------------------------------------------------------
+    // INFORMATION ROWS
+    // ---------------------------------------------------------
 
     private fun addInfoRow(
         parent: LinearLayout,
         label: String,
         initialValue: String
     ): TextView {
+
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(3), 0, dp(3))
+
+            setPadding(
+                0,
+                dp(3),
+                0,
+                dp(3)
+            )
         }
 
-        row.addView(
-            makeText(label, 8f, Color.rgb(90, 160, 195), true)
+        val labelView = makeText(
+            label,
+            8f,
+            Color.rgb(90, 160, 195),
+            true
         )
 
-        val value = makeText(initialValue, 10f, Color.WHITE)
-        row.addView(value)
+        val valueView = makeText(
+            initialValue,
+            10f,
+            Color.WHITE
+        )
+
+        row.addView(labelView)
+        row.addView(valueView)
 
         parent.addView(
             row,
@@ -254,8 +433,12 @@ class ATSTrackScanOverlay(
             )
         )
 
-        return value
+        return valueView
     }
+
+    // ---------------------------------------------------------
+    // TEXT FACTORY
+    // ---------------------------------------------------------
 
     private fun makeText(
         value: String,
@@ -263,172 +446,425 @@ class ATSTrackScanOverlay(
         color: Int,
         bold: Boolean = false
     ): TextView {
+
         return TextView(context).apply {
             text = value
             textSize = size
+
             setTextColor(color)
+
             if (bold) {
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                typeface = Typeface.DEFAULT_BOLD
             }
-            setPadding(0, dp(2), 0, dp(2))
+
+            setPadding(
+                0,
+                dp(2),
+                0,
+                dp(2)
+            )
+
+            isSingleLine = false
         }
     }
 
+    // ---------------------------------------------------------
+    // WINDOW BACKGROUND
+    // ---------------------------------------------------------
+
     private fun roundedBackground(): GradientDrawable {
+
         return GradientDrawable().apply {
-            setColor(Color.rgb(5, 17, 34))
-            cornerRadius = dp(15).toFloat()
-            setStroke(dp(1), Color.rgb(0, 145, 205))
+            setColor(
+                Color.rgb(5, 17, 34)
+            )
+
+            cornerRadius =
+                dp(15).toFloat()
+
+            setStroke(
+                dp(1),
+                Color.rgb(0, 145, 205)
+            )
         }
     }
+
+    // ---------------------------------------------------------
+    // CALL STATE
+    // ---------------------------------------------------------
 
     private fun updateCallDetails(
         callerName: String,
         callerNumber: String,
         callState: Int
     ) {
-        callerNameView?.text = callerName
-        numberView?.text = callerNumber
+
+        callerNameView?.text =
+            callerName
+                .takeIf { it.isNotBlank() }
+                ?: "UNKNOWN CALLER"
+
+        numberView?.text =
+            callerNumber
+                .takeIf { it.isNotBlank() }
+                ?: "NUMBER UNAVAILABLE"
 
         statusView?.text = when (callState) {
+
             Call.STATE_RINGING ->
                 "INCOMING CALL • SCANNING"
+
             Call.STATE_DIALING ->
                 "OUTGOING CALL • SCANNING"
+
             Call.STATE_CONNECTING ->
                 "CONNECTING • SCANNING"
+
             Call.STATE_ACTIVE ->
                 "CALL ACTIVE • LIVE ANALYSIS"
+
             Call.STATE_HOLDING ->
                 "CALL ON HOLD"
+
+            Call.STATE_DISCONNECTED ->
+                "CALL DISCONNECTED"
+
+            Call.STATE_DISCONNECTING ->
+                "CALL DISCONNECTING"
+
             else ->
                 "CALL SESSION • SCANNING"
         }
     }
 
-    private fun analyzeIfNeeded(number: String) {
-        if (number == lastNumber) return
+    // ---------------------------------------------------------
+    // RESET ANALYSIS DISPLAY
+    // ---------------------------------------------------------
 
-        lastNumber = number
-        currentReport = null
+    private fun resetAnalysisDisplay(
+        status: String
+    ) {
 
-        countryView?.text = "ANALYZING..."
+        countryView?.text = status
         codeView?.text = "—"
         typeView?.text = "—"
         carrierView?.text = "—"
         riskView?.text = "—"
         confidenceView?.text = "—"
-        sourceView?.text = "LOADING METADATA"
+        sourceView?.text = "—"
 
-        worker.execute {
-            val result = ATSTrackScanEngine.analyze(
-                context.applicationContext,
-                number
+        mapView?.setTrackScanReport(null)
+    }
+
+    // ---------------------------------------------------------
+    // ANALYSIS ENGINE
+    // ---------------------------------------------------------
+
+    private fun analyzeIfNeeded(number: String) {
+
+        if (number == lastNumber) return
+
+        lastNumber = number
+
+        scanGeneration++
+        val generation = scanGeneration
+
+        currentReport = null
+
+        if (number.isBlank()) {
+            resetAnalysisDisplay(
+                "NUMBER UNAVAILABLE"
             )
 
-            mainHandler.post {
-                if (number != lastNumber || !added) {
-                    return@post
+            statusView?.text =
+                "WAITING FOR CALL NUMBER"
+
+            return
+        }
+
+        resetAnalysisDisplay(
+            "ANALYZING..."
+        )
+
+        sourceView?.text =
+            "LOADING METADATA"
+
+        statusView?.text =
+            "ATS ENGINE • ANALYZING"
+
+        try {
+
+            worker.execute {
+
+                val result = try {
+
+                    ATSTrackScanEngine.analyze(
+                        context.applicationContext,
+                        number
+                    )
+
+                } catch (exception: Exception) {
+
+                    null
                 }
 
-                currentReport = result
-                renderReport(result)
+                mainHandler.post {
+
+                    if (destroyed) return@post
+
+                    if (!added) return@post
+
+                    if (generation != scanGeneration) {
+                        return@post
+                    }
+
+                    if (number != lastNumber) {
+                        return@post
+                    }
+
+                    if (result == null) {
+
+                        currentReport = null
+
+                        resetAnalysisDisplay(
+                            "ANALYSIS FAILED"
+                        )
+
+                        statusView?.text =
+                            "ATS ENGINE • ANALYSIS ERROR"
+
+                        return@post
+                    }
+
+                    currentReport = result
+
+                    renderReport(result)
+                }
             }
+
+        } catch (_: RejectedExecutionException) {
+
+            resetAnalysisDisplay(
+                "ENGINE UNAVAILABLE"
+            )
+
+            statusView?.text =
+                "ATS ENGINE • UNAVAILABLE"
         }
     }
 
-    private fun renderReport(report: ATSTrackScanReport) {
-        countryView?.text = report.countryName
-        codeView?.text = report.callingCode
-        typeView?.text = report.numberType
+    // ---------------------------------------------------------
+    // RENDER ANALYSIS REPORT
+    // ---------------------------------------------------------
+
+    private fun renderReport(
+        report: ATSTrackScanReport
+    ) {
+
+        countryView?.text =
+            report.countryName
+                .ifBlank { "UNKNOWN" }
+
+        codeView?.text =
+            report.callingCode
+                .ifBlank { "—" }
+
+        typeView?.text =
+            report.numberType
+                .ifBlank { "UNKNOWN" }
 
         carrierView?.text =
-            report.originalCarrier + "\n" + report.carrierNotice
+            report.originalCarrier
+                .ifBlank { "NOT AVAILABLE" } +
+                "\n" +
+                report.carrierNotice
 
-        riskView?.text = report.riskAssessment
-        confidenceView?.text = "${report.confidence}%"
+        riskView?.text =
+            report.riskAssessment
+                .ifBlank { "NOT ASSESSED" }
+
+        confidenceView?.text =
+            "${report.confidence}%"
 
         sourceView?.text =
-            report.metadataSource + "\n" +
-            report.metadataVersion + "\n" +
-            "Country reference: ${report.countrySource}"
+            report.metadataSource +
+                "\n" +
+                report.metadataVersion +
+                "\n" +
+                "Country reference: " +
+                report.countrySource
 
-        mapView?.setHighlightedCountry(report.regionCode)
+        statusView?.text =
+            "ATS ENGINE • ${report.analysisStatus}"
+
+        // IMPORTANT:
+        // Send the complete report to the map.
+        // The map highlights the numbering region,
+        // not the physical location of the caller.
+
+        mapView?.setTrackScanReport(report)
     }
+
+    // ---------------------------------------------------------
+    // DYNAMIC WINDOW POSITION
+    // ---------------------------------------------------------
 
     private fun updatePosition(
         orbX: Int,
         orbY: Int
     ) {
+
         val params = layoutParams ?: return
+        val panel = root ?: return
+
+        val displayMetrics =
+            context.resources.displayMetrics
 
         val screenWidth =
-            context.resources.displayMetrics.widthPixels
+            displayMetrics.widthPixels
 
         val screenHeight =
-            context.resources.displayMetrics.heightPixels
+            displayMetrics.heightPixels
 
         val panelWidth = dp(270)
         val panelHeight = dp(390)
         val orbSize = dp(72)
 
-        val rightPosition = orbX + orbSize + dp(8)
+        // Prefer placing the scan panel to the right
+        // of the floating tactical orb.
 
-        val x = if (rightPosition + panelWidth <= screenWidth) {
+        val rightPosition =
+            orbX + orbSize + dp(8)
+
+        val x = if (
+            rightPosition + panelWidth <= screenWidth
+        ) {
+
             rightPosition
+
         } else {
-            (orbX - panelWidth - dp(8)).coerceAtLeast(0)
+
+            (orbX - panelWidth - dp(8))
+                .coerceIn(
+                    0,
+                    maxOf(0, screenWidth - panelWidth)
+                )
         }
 
+        // Keep the bottom call controls visible.
+
         val safeBottom = dp(220)
+
         val maxY = maxOf(
             0,
             screenHeight - panelHeight - safeBottom
         )
 
-        val y = (orbY - dp(55)).coerceIn(0, maxY)
+        val y = (orbY - dp(55))
+            .coerceIn(0, maxY)
 
-        if (x == lastX && y == lastY) return
-
-        val panel = root ?: return
+        if (
+            x == lastX &&
+            y == lastY
+        ) {
+            return
+        }
 
         params.x = x
         params.y = y
 
         try {
-            windowManager.updateViewLayout(panel, params)
+
+            windowManager.updateViewLayout(
+                panel,
+                params
+            )
+
             lastX = x
             lastY = y
+
         } catch (_: Exception) {
+            // Window may already have been removed.
         }
     }
 
-    private fun hide() {
-        if (!added) return
+    // ---------------------------------------------------------
+    // HIDE WINDOW
+    // ---------------------------------------------------------
 
-        try {
-            root?.let {
-                windowManager.removeView(it)
+    private fun hide() {
+
+        // Invalidate all pending analysis callbacks.
+
+        scanGeneration++
+
+        lastNumber = ""
+        currentReport = null
+
+        if (added) {
+
+            try {
+
+                root?.let {
+                    windowManager.removeView(it)
+                }
+
+            } catch (_: Exception) {
+                // Window already removed.
             }
-        } catch (_: Exception) {
         }
 
         root = null
         mapView = null
         layoutParams = null
-        added = false
 
-        // Allow the same number to be analyzed on the next call.
-        lastNumber = ""
-        currentReport = null
+        added = false
 
         lastX = Int.MIN_VALUE
         lastY = Int.MIN_VALUE
+
+        callerNameView = null
+        numberView = null
+        statusView = null
+
+        countryView = null
+        codeView = null
+        typeView = null
+        carrierView = null
+        riskView = null
+        confidenceView = null
+        sourceView = null
     }
 
+    // ---------------------------------------------------------
+    // DESTROY
+    // ---------------------------------------------------------
+
     fun destroy() {
-        hide()
+
+        if (destroyed) return
+
+        destroyed = true
+
+        scanGeneration++
+
+        // Remove the window on the main thread.
+        if (
+            android.os.Looper.myLooper() ==
+            android.os.Looper.getMainLooper()
+        ) {
+
+            hide()
+
+        } else {
+
+            mainHandler.post {
+                hide()
+            }
+        }
+
         worker.shutdownNow()
+
         mainHandler.removeCallbacksAndMessages(null)
     }
 }
