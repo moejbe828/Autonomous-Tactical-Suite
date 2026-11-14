@@ -53,6 +53,13 @@ class MainActivity : ComponentActivity() {
     private val callScreeningEnabled =
         mutableStateOf(false)
 
+    // ---------------------------------------------------------
+    // SIM AND NETWORK COUNTRY DIAGNOSTICS
+    // ---------------------------------------------------------
+
+    private val countryDiagnostics =
+        mutableStateOf<ATSCountryDiagnostics?>(null)
+
     private val deviceDataExecutor =
         Executors.newSingleThreadExecutor()
 
@@ -179,6 +186,7 @@ class MainActivity : ComponentActivity() {
         refreshDataPermissions()
         refreshCallScreeningStatus()
         loadBlockedNumbers()
+        loadCountryDiagnostics()
         handleDialIntent(intent)
 
         setContent {
@@ -283,6 +291,29 @@ class MainActivity : ComponentActivity() {
             loadCallHistory()
         } else {
             callHistory.value = emptyList()
+        }
+    }
+
+    // ---------------------------------------------------------
+    // SIM AND NETWORK COUNTRY DIAGNOSTICS
+    // ---------------------------------------------------------
+
+    private fun loadCountryDiagnostics() {
+
+        deviceDataExecutor.execute {
+            try {
+                val diagnostics =
+                    ATSBlockedNumbersStore.getCountryDiagnostics(this)
+
+                runOnUiThread {
+                    countryDiagnostics.value = diagnostics
+                }
+
+            } catch (_: Exception) {
+                runOnUiThread {
+                    countryDiagnostics.value = null
+                }
+            }
         }
     }
 
@@ -976,6 +1007,7 @@ class MainActivity : ComponentActivity() {
         refreshDataPermissions()
         refreshCallScreeningStatus()
         loadBlockedNumbers()
+        loadCountryDiagnostics()
     }
 
     override fun onDestroy() {
