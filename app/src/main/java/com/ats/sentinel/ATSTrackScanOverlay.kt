@@ -64,6 +64,9 @@ class ATSTrackScanOverlay(
     private var confidenceView: TextView? = null
     private var sourceView: TextView? = null
 
+    private var numberingDatabaseView: TextView? = null
+    private var operatorDatabaseView: TextView? = null
+
     // ---------------------------------------------------------
     // ANALYSIS STATE
     // ---------------------------------------------------------
@@ -299,6 +302,22 @@ class ATSTrackScanOverlay(
             "—"
         )
 
+        // GLOBAL DATABASE STATUS
+
+        numberingDatabaseView = addInfoRow(
+            content,
+            "GLOBAL NUMBERING DATABASE",
+            "LOADING LOCAL METADATA"
+        )
+
+        operatorDatabaseView = addInfoRow(
+            content,
+            "OPERATOR / MCC-MNC DATABASE",
+            "VERIFIED RECORDS: CHECKING"
+        )
+
+        updateDatabaseStatus()
+
         // MAP HEADER
 
         content.addView(
@@ -490,6 +509,50 @@ class ATSTrackScanOverlay(
     }
 
     // ---------------------------------------------------------
+    // GLOBAL DATABASE STATUS
+    // ---------------------------------------------------------
+
+    private fun updateDatabaseStatus() {
+
+        val info = try {
+            ATSGlobalTelecomDatabase.getDatabaseInfo()
+        } catch (_: Exception) {
+            emptyMap()
+        }
+
+        val countryCount =
+            info["COUNTRY_RECORD_COUNT"] ?: "0"
+
+        val databaseVersion =
+            info["DATABASE_VERSION"] ?: "UNKNOWN"
+
+        val countrySource =
+            info["COUNTRY_SOURCE"] ?: "SOURCE UNAVAILABLE"
+
+        val offlineStatus =
+            info["OFFLINE_STATUS"] ?: "STATUS UNKNOWN"
+
+        val operatorCount =
+            info["OPERATOR_RECORD_COUNT"] ?: "0"
+
+        val operatorSource =
+            info["OPERATOR_SOURCE"] ?: "SOURCE UNAVAILABLE"
+
+        val mccMncStatus =
+            info["MCC_MNC_STATUS"] ?: "NOT AVAILABLE"
+
+        numberingDatabaseView?.text =
+            "$countryCount REGIONS • VERSION $databaseVersion\n" +
+                "$offlineStatus\n" +
+                "SOURCE: $countrySource"
+
+        operatorDatabaseView?.text =
+            "VERIFIED OPERATOR RECORDS: $operatorCount\n" +
+                "MCC/MNC: $mccMncStatus\n" +
+                "SOURCE: $operatorSource"
+    }
+
+    // ---------------------------------------------------------
     // CALL STATE
     // ---------------------------------------------------------
 
@@ -552,6 +615,8 @@ class ATSTrackScanOverlay(
         riskView?.text = "—"
         confidenceView?.text = "—"
         sourceView?.text = "—"
+
+        updateDatabaseStatus()
 
         mapView?.setTrackScanReport(null)
     }
@@ -694,10 +759,11 @@ class ATSTrackScanOverlay(
                 "Country reference: " +
                 report.countrySource
 
+        updateDatabaseStatus()
+
         statusView?.text =
             "ATS ENGINE • ${report.analysisStatus}"
 
-        // IMPORTANT:
         // Send the complete report to the map.
         // The map highlights the numbering region,
         // not the physical location of the caller.
@@ -834,6 +900,9 @@ class ATSTrackScanOverlay(
         riskView = null
         confidenceView = null
         sourceView = null
+
+        numberingDatabaseView = null
+        operatorDatabaseView = null
     }
 
     // ---------------------------------------------------------
