@@ -12,8 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -51,6 +49,7 @@ object ATSCallSession {
     var isSpeakerOn by mutableStateOf(false)
 
     // ATS TRACK SCAN — SATELLITE INTELLIGENCE ORB
+    // These states are controlled by the floating orb service.
     var isTrackScanVisible by mutableStateOf(false)
     var isTrackScanCallActive by mutableStateOf(false)
 
@@ -89,16 +88,16 @@ object ATSCallSession {
             return
         }
 
-        if (trackedCall !== call) {
-            trackedCall = call
-            isTrackScanCallActive = true
-            isTrackScanVisible = true
-        }
-
         callState = call.state
 
         if (call.state == Call.STATE_DISCONNECTED) {
             resetTrackScan()
+        } else {
+            if (trackedCall !== call) {
+                trackedCall = call
+                isTrackScanCallActive = true
+                isTrackScanVisible = true
+            }
         }
 
         val details = call.details
@@ -258,7 +257,7 @@ class ATSCallActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 window.addFlags(
                     WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                 )
             }
 
@@ -384,9 +383,6 @@ private fun ATSCallScreen(
     val audioRoute = ATSCallSession.audioRoute
     val supportedRoutes = ATSCallSession.supportedAudioRoutes
 
-    val trackScanVisible = ATSCallSession.isTrackScanVisible
-    val trackScanActive = ATSCallSession.isTrackScanCallActive
-
     var keypadVisible by remember { mutableStateOf(false) }
     var dtmfDisplay by remember { mutableStateOf("") }
 
@@ -445,12 +441,12 @@ private fun ATSCallScreen(
                 )
             }
 
-            // CALL DETAILS AND INTELLIGENCE PANEL
+            // CALL DETAILS
+            // ATS TRACK SCAN is now handled by the floating satellite overlay.
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                    .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -489,16 +485,9 @@ private fun ATSCallScreen(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp
                 )
-
-                if (trackScanActive && trackScanVisible) {
-                    TrackScanPanel(
-                        callerNumber = number,
-                        callStatus = status
-                    )
-                }
             }
 
-            // FIXED CALL CONTROLS — KEPT SEPARATE FROM TRACK SCAN
+            // FIXED CALL CONTROLS
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -690,98 +679,6 @@ private fun ATSCallScreen(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun TrackScanPanel(
-    callerNumber: String,
-    callStatus: String
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                Color(0xFF07182A),
-                RoundedCornerShape(18.dp)
-            )
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "ATS TRACK SCAN",
-                color = CallBlue,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.2.sp
-            )
-
-            Text(
-                text = "● SCAN ACTIVE",
-                color = CallGreen,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        HorizontalDivider(color = Color(0xFF17466A))
-
-        TrackScanInfoRow(
-            label = "NUMBER",
-            value = callerNumber
-        )
-
-        TrackScanInfoRow(
-            label = "CALL STATUS",
-            value = callStatus
-        )
-
-        TrackScanInfoRow(
-            label = "ANALYSIS ENGINE",
-            value = "READY"
-        )
-
-        TrackScanInfoRow(
-            label = "NUMBER INTELLIGENCE",
-            value = "AWAITING GLOBAL DATABASE"
-        )
-
-        Text(
-            text = "Location and carrier data will only be shown when verified sources are available. A phone number alone does not reveal a caller's live location.",
-            color = CallMuted,
-            fontSize = 10.sp,
-            lineHeight = 14.sp
-        )
-    }
-}
-
-@Composable
-private fun TrackScanInfoRow(
-    label: String,
-    value: String
-) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(
-            text = label,
-            color = CallMuted,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
-
-        Text(
-            text = value,
-            color = CallText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 
