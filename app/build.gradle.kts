@@ -94,6 +94,21 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
 
+    // ATS TRACK SCAN - International Phone Number Intelligence
+    implementation(
+        "com.googlecode.libphonenumber:libphonenumber:9.0.43"
+    )
+
+    // ATS TRACK SCAN - Carrier Metadata
+    implementation(
+        "com.googlecode.libphonenumber:carrier:2.43"
+    )
+
+    // ATS TRACK SCAN - Number Prefix Metadata
+    implementation(
+        "com.googlecode.libphonenumber:prefixmapper:3.43"
+    )
+
     // Unit Testing
     testImplementation("junit:junit:4.13.2")
 
@@ -103,6 +118,7 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
+    // Debug Tools
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
