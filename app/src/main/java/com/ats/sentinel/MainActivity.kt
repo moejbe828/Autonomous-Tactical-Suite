@@ -262,7 +262,10 @@ class MainActivity : ComponentActivity() {
 
                 onRefreshBlockedNumbers = {
                     loadBlockedNumbers()
-                }
+                },
+
+                // SIM AND NETWORK COUNTRY DIAGNOSTICS
+                countryDiagnostics = countryDiagnostics.value
             )
         }
     }
