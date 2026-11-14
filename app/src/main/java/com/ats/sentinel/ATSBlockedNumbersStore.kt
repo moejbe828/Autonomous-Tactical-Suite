@@ -6,6 +6,8 @@ import android.content.SharedPreferences
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
 import android.util.Base64
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -16,8 +18,6 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 
 data class ATSBlockedNumber(
     val number: String
@@ -28,6 +28,31 @@ data class ATSBlockingAuditEvent(
     val maskedNumber: String,
     val timestamp: Long,
     val source: String
+)
+
+/**
+ * Diagnostic information about the country and telephony state.
+ *
+ * countryIso:
+ * The selected country used for local number normalization.
+ *
+ * countrySource:
+ * SIM, NETWORK, DEVICE_LOCALE or NONE.
+ *
+ * roaming:
+ * true  = roaming
+ * false = not roaming
+ * null  = unavailable
+ */
+data class ATSCountryDiagnostics(
+    val countryIso: String?,
+    val countrySource: String,
+    val simCountryIso: String?,
+    val networkCountryIso: String?,
+    val deviceLocaleCountryIso: String?,
+    val roaming: Boolean?,
+    val simState: String,
+    val telephonyAvailable: Boolean
 )
 
 class ATSBlockedNumbersStoreException(
@@ -59,14 +84,34 @@ object ATSBlockedNumbersStore {
     }
 
     /**
-     * Country selection priority:
+     * Returns a validated two-letter ISO country code.
+     * Invalid or unavailable values are returned as null.
+     */
+    private fun validateCountryIso(value: String?): String? {
+        return value
+            ?.trim()
+            ?.lowercase(Locale.ROOT)
+            ?.takeIf { it.matches(Regex("^[a-z]{2}$")) }
+    }
+
+    /**
+     * Reads country and telephony diagnostics.
+     *
+     * Priority:
      * 1. SIM country
-     * 2. Network country
+     * 2. Current network country
      * 3. Device locale
      *
-     * No country is hardcoded.
+     * SIM country is kept as the primary source during roaming.
+     * Network country is reported separately so the UI can show
+     * the difference between home SIM country and visited network.
+     *
+     * No country is hardcoded or guessed.
+     * No SIM phone number is accessed.
      */
-    private fun getDefaultCountryIso(context: Context): String? {
+    @Synchronized
+    fun getCountryDiagnostics(context: Context): ATSCountryDiagnostics {
+
         val telephonyManager = try {
             context.applicationContext.getSystemService(
                 Context.TELEPHONY_SERVICE
@@ -76,40 +121,98 @@ object ATSBlockedNumbersStore {
         }
 
         val simCountry = try {
-            telephonyManager?.simCountryIso
-                ?.trim()
-                ?.lowercase(Locale.ROOT)
-                ?.takeIf { it.matches(Regex("^[a-z]{2}$")) }
+            validateCountryIso(telephonyManager?.simCountryIso)
         } catch (_: SecurityException) {
             null
         } catch (_: Exception) {
             null
-        }
-
-        if (!simCountry.isNullOrBlank()) {
-            return simCountry
         }
 
         val networkCountry = try {
-            telephonyManager?.networkCountryIso
-                ?.trim()
-                ?.lowercase(Locale.ROOT)
-                ?.takeIf { it.matches(Regex("^[a-z]{2}$")) }
+            validateCountryIso(telephonyManager?.networkCountryIso)
         } catch (_: SecurityException) {
             null
         } catch (_: Exception) {
             null
         }
 
-        if (!networkCountry.isNullOrBlank()) {
-            return networkCountry
+        val localeCountry = validateCountryIso(
+            Locale.getDefault().country
+        )
+
+        val roaming = try {
+            telephonyManager?.isNetworkRoaming
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
         }
 
-        return Locale.getDefault()
-            .country
-            .trim()
-            .lowercase(Locale.ROOT)
-            .takeIf { it.matches(Regex("^[a-z]{2}$")) }
+        val simStateValue = try {
+            telephonyManager?.simState
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+
+        val simStateLabel = when (simStateValue) {
+            TelephonyManager.SIM_STATE_ABSENT -> "ABSENT"
+            TelephonyManager.SIM_STATE_READY -> "READY"
+            TelephonyManager.SIM_STATE_PIN_REQUIRED -> "PIN_REQUIRED"
+            TelephonyManager.SIM_STATE_PUK_REQUIRED -> "PUK_REQUIRED"
+            TelephonyManager.SIM_STATE_NETWORK_LOCKED -> "NETWORK_LOCKED"
+            TelephonyManager.SIM_STATE_NOT_READY -> "NOT_READY"
+            TelephonyManager.SIM_STATE_PERM_DISABLED -> "PERMANENTLY_DISABLED"
+            TelephonyManager.SIM_STATE_CARD_IO_ERROR -> "CARD_IO_ERROR"
+            TelephonyManager.SIM_STATE_CARD_RESTRICTED -> "CARD_RESTRICTED"
+            TelephonyManager.SIM_STATE_UNKNOWN -> "UNKNOWN"
+            null -> "UNAVAILABLE"
+            else -> "UNKNOWN"
+        }
+
+        val selectedCountry: String?
+        val selectedSource: String
+
+        when {
+            !simCountry.isNullOrBlank() -> {
+                selectedCountry = simCountry
+                selectedSource = "SIM"
+            }
+
+            !networkCountry.isNullOrBlank() -> {
+                selectedCountry = networkCountry
+                selectedSource = "NETWORK"
+            }
+
+            !localeCountry.isNullOrBlank() -> {
+                selectedCountry = localeCountry
+                selectedSource = "DEVICE_LOCALE"
+            }
+
+            else -> {
+                selectedCountry = null
+                selectedSource = "NONE"
+            }
+        }
+
+        return ATSCountryDiagnostics(
+            countryIso = selectedCountry,
+            countrySource = selectedSource,
+            simCountryIso = simCountry,
+            networkCountryIso = networkCountry,
+            deviceLocaleCountryIso = localeCountry,
+            roaming = roaming,
+            simState = simStateLabel,
+            telephonyAvailable = telephonyManager != null
+        )
+    }
+
+    /**
+     * Returns the selected country used by number normalization.
+     */
+    private fun getDefaultCountryIso(context: Context): String? {
+        return getCountryDiagnostics(context).countryIso
     }
 
     /**
@@ -150,7 +253,10 @@ object ATSBlockedNumbersStore {
         if (isInternational) {
             val e164 = countryIso?.let {
                 try {
-                    PhoneNumberUtils.formatNumberToE164(input, it.uppercase())
+                    PhoneNumberUtils.formatNumberToE164(
+                        input,
+                        it.uppercase(Locale.ROOT)
+                    )
                 } catch (_: Exception) {
                     null
                 }
@@ -180,8 +286,6 @@ object ATSBlockedNumbersStore {
 
     /**
      * Public normalization entry point for UI components.
-     * CONTACTS and CALL HISTORY should use this same function
-     * instead of implementing their own number comparison.
      */
     @Synchronized
     @Throws(ATSBlockedNumbersStoreException::class)
