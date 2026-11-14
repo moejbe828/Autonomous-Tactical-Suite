@@ -12,6 +12,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -48,10 +50,28 @@ object ATSCallSession {
     var supportedAudioRoutes by mutableIntStateOf(0)
     var isSpeakerOn by mutableStateOf(false)
 
+    // ATS TRACK SCAN — SATELLITE INTELLIGENCE ORB
+    var isTrackScanVisible by mutableStateOf(false)
+    var isTrackScanCallActive by mutableStateOf(false)
+
+    private var trackedCall: Call? = null
+
     var service: ATSInCallService? = null
 
     private val dtmfHandler = Handler(Looper.getMainLooper())
     private var pendingDtmfStop: Runnable? = null
+
+    fun toggleTrackScan() {
+        if (isTrackScanCallActive) {
+            isTrackScanVisible = !isTrackScanVisible
+        }
+    }
+
+    private fun resetTrackScan() {
+        isTrackScanVisible = false
+        isTrackScanCallActive = false
+        trackedCall = null
+    }
 
     fun update(call: Call?) {
         currentCall = call
@@ -65,10 +85,21 @@ object ATSCallSession {
             isSpeakerOn = false
             audioRoute = 0
             supportedAudioRoutes = 0
+            resetTrackScan()
             return
         }
 
+        if (trackedCall !== call) {
+            trackedCall = call
+            isTrackScanCallActive = true
+            isTrackScanVisible = true
+        }
+
         callState = call.state
+
+        if (call.state == Call.STATE_DISCONNECTED) {
+            resetTrackScan()
+        }
 
         val details = call.details
         val name = details.callerDisplayName
@@ -353,6 +384,9 @@ private fun ATSCallScreen(
     val audioRoute = ATSCallSession.audioRoute
     val supportedRoutes = ATSCallSession.supportedAudioRoutes
 
+    val trackScanVisible = ATSCallSession.isTrackScanVisible
+    val trackScanActive = ATSCallSession.isTrackScanCallActive
+
     var keypadVisible by remember { mutableStateOf(false) }
     var dtmfDisplay by remember { mutableStateOf("") }
 
@@ -387,11 +421,14 @@ private fun ATSCallScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // HEADER
+            Column(
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
                     text = "ATS",
                     color = CallBlue,
@@ -408,20 +445,25 @@ private fun ATSCallScreen(
                 )
             }
 
+            // CALL DETAILS AND INTELLIGENCE PANEL
             Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(118.dp)
+                        .size(94.dp)
                         .background(CallSurface, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "ATS",
                         color = CallBlue,
-                        fontSize = 30.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -447,11 +489,22 @@ private fun ATSCallScreen(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp
                 )
+
+                if (trackScanActive && trackScanVisible) {
+                    TrackScanPanel(
+                        callerNumber = number,
+                        callStatus = status
+                    )
+                }
             }
 
+            // FIXED CALL CONTROLS — KEPT SEPARATE FROM TRACK SCAN
             Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (isActive || isHolding) {
                     Row(
@@ -511,7 +564,9 @@ private fun ATSCallScreen(
                         CallOption(
                             label = if (isHolding) "RESUME" else "HOLD",
                             active = isHolding,
-                            onClick = { ATSCallSession.toggleHold() }
+                            onClick = {
+                                ATSCallSession.toggleHold()
+                            }
                         )
                     }
 
@@ -519,10 +574,13 @@ private fun ATSCallScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(CallSurface, RoundedCornerShape(18.dp))
-                                .padding(12.dp),
+                                .background(
+                                    CallSurface,
+                                    RoundedCornerShape(18.dp)
+                                )
+                                .padding(10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
                                 text = if (dtmfDisplay.isEmpty()) {
@@ -531,7 +589,7 @@ private fun ATSCallScreen(
                                     dtmfDisplay
                                 },
                                 color = CallBlue,
-                                fontSize = 18.sp,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
@@ -558,7 +616,7 @@ private fun ATSCallScreen(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .padding(horizontal = 5.dp)
-                                                .height(45.dp),
+                                                .height(42.dp),
                                             shape = RoundedCornerShape(12.dp),
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = CallBackground,
@@ -636,6 +694,98 @@ private fun ATSCallScreen(
 }
 
 @Composable
+private fun TrackScanPanel(
+    callerNumber: String,
+    callStatus: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Color(0xFF07182A),
+                RoundedCornerShape(18.dp)
+            )
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "ATS TRACK SCAN",
+                color = CallBlue,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.2.sp
+            )
+
+            Text(
+                text = "● SCAN ACTIVE",
+                color = CallGreen,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        HorizontalDivider(color = Color(0xFF17466A))
+
+        TrackScanInfoRow(
+            label = "NUMBER",
+            value = callerNumber
+        )
+
+        TrackScanInfoRow(
+            label = "CALL STATUS",
+            value = callStatus
+        )
+
+        TrackScanInfoRow(
+            label = "ANALYSIS ENGINE",
+            value = "READY"
+        )
+
+        TrackScanInfoRow(
+            label = "NUMBER INTELLIGENCE",
+            value = "AWAITING GLOBAL DATABASE"
+        )
+
+        Text(
+            text = "Location and carrier data will only be shown when verified sources are available. A phone number alone does not reveal a caller's live location.",
+            color = CallMuted,
+            fontSize = 10.sp,
+            lineHeight = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun TrackScanInfoRow(
+    label: String,
+    value: String
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = label,
+            color = CallMuted,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
+
+        Text(
+            text = value,
+            color = CallText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
 private fun CallOption(
     label: String,
     active: Boolean,
@@ -665,7 +815,7 @@ private fun CallActionButton(
     Button(
         onClick = onClick,
         modifier = Modifier
-            .height(58.dp)
+            .height(54.dp)
             .widthIn(min = 130.dp),
         shape = RoundedCornerShape(30.dp),
         colors = ButtonDefaults.buttonColors(
