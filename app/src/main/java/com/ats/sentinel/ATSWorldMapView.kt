@@ -47,6 +47,7 @@ class ATSWorldMapView(context: Context) : View(context) {
 
     private var satelliteBitmap: Bitmap? = null
     private var highlightedCountry = ""
+    private var trackScanReport: ATSTrackScanReport? = null
 
     @Volatile
     private var loadingCountries = true
@@ -196,11 +197,25 @@ class ATSWorldMapView(context: Context) : View(context) {
     }
 
     // ---------------------------------------------------------
-    // PUBLIC API - EXISTING INTEGRATION METHODS
+    // PUBLIC API
     // ---------------------------------------------------------
 
     fun setHighlightedCountry(isoCode: String?) {
         highlightedCountry = isoCode
+            ?.trim()
+            ?.uppercase(Locale.ROOT)
+            .orEmpty()
+        invalidate()
+    }
+
+    /**
+     * Supplies the latest ATS TRACK SCAN analysis to the map.
+     * The highlighted region is the phone-numbering region,
+     * not a live physical location.
+     */
+    fun setTrackScanReport(report: ATSTrackScanReport?) {
+        trackScanReport = report
+        highlightedCountry = report?.regionCode
             ?.trim()
             ?.uppercase(Locale.ROOT)
             .orEmpty()
@@ -892,7 +907,7 @@ class ATSWorldMapView(context: Context) : View(context) {
     private fun drawHud(canvas: Canvas) {
         val margin = 9f * density
         val panelWidth = min(width * 0.58f, 220f * density)
-        val panelHeight = 91f * density
+        val panelHeight = 108f * density
 
         val panel = RectF(
             margin,
@@ -933,20 +948,46 @@ class ATSWorldMapView(context: Context) : View(context) {
 
         y += 12f * density
 
+        val report = trackScanReport
+        val regionLine = if (report != null && report.regionCode.isNotBlank()) {
+            "NUMBER REGION: ${report.regionCode}  ${report.callingCode}"
+        } else {
+            "NUMBER REGION: NOT AVAILABLE"
+        }
+
+        y += 12f * density
         canvas.drawText(
-            "TELECOM INTEL: ${if (telecomLayerEnabled) "NO DATA" else "STANDBY"}",
+            regionLine,
             x,
             y,
-            warningText
+            if (report?.isValid == true) activeText else warningText
         )
 
         y += 12f * density
+        val typeLine = if (report != null) {
+            "TYPE: ${report.numberType}"
+        } else {
+            "TRACK SCAN: WAITING FOR REPORT"
+        }
+        canvas.drawText(typeLine, x, y, secondaryText)
 
+        y += 12f * density
+        val carrierLine = when {
+            report == null -> "CARRIER: NOT ANALYZED"
+            report.originalCarrier.isBlank() ||
+                report.originalCarrier == "NOT AVAILABLE IN PREFIX DATA" ->
+                "CARRIER: NOT AVAILABLE"
+            else -> "ORIGINAL: ${report.originalCarrier}"
+        }
         canvas.drawText(
-            "NETWORK INTEL: ${if (networkLayerEnabled) "NO DATA" else "STANDBY"}",
+            carrierLine,
             x,
             y,
-            warningText
+            if (report?.originalCarrier?.startsWith("NOT AVAILABLE") == true) {
+                warningText
+            } else {
+                secondaryText
+            }
         )
 
         val statusWidth = 92f * density
@@ -1023,29 +1064,34 @@ class ATSWorldMapView(context: Context) : View(context) {
 
         y += lineHeight
 
+        val reportAvailable = trackScanReport != null
         drawLayerLine(
             canvas, x, markerX, y,
-            "TELECOM DATA",
-            false,
-            unavailable = true
+            "NUMBER ANALYSIS",
+            reportAvailable,
+            unavailable = !reportAvailable
         )
 
         y += lineHeight
 
+        val carrierAvailable = trackScanReport?.originalCarrier
+            ?.let { it.isNotBlank() && !it.startsWith("NOT AVAILABLE") }
+            ?: false
         drawLayerLine(
             canvas, x, markerX, y,
-            "NETWORK DATA",
-            false,
-            unavailable = true
+            "CARRIER PREFIX DATA",
+            carrierAvailable,
+            unavailable = !carrierAvailable
         )
 
         y += lineHeight
 
         canvas.drawText(
-            if (regionalLayerEnabled) {
-                "REGIONAL: NO DATA"
-            } else {
-                "REGIONAL: STANDBY"
+            when {
+                trackScanReport?.regionCode?.isNotBlank() == true ->
+                    "REGION: ${trackScanReport?.regionCode}"
+                regionalLayerEnabled -> "REGIONAL: NO REPORT"
+                else -> "REGIONAL: STANDBY"
             },
             x,
             y,
@@ -1095,7 +1141,7 @@ class ATSWorldMapView(context: Context) : View(context) {
         val panel = RectF(
             margin,
             height - 68f * density,
-            margin + 145f * density,
+            margin + 100f * density,
             height - 24f * density
         )
 
@@ -1115,11 +1161,18 @@ class ATSWorldMapView(context: Context) : View(context) {
             primaryText
         )
 
+        val report = trackScanReport
+        val profileLine = when {
+            report == null -> "TRACK SCAN: WAITING"
+            report.regionCode.isBlank() -> "REGION: UNAVAILABLE"
+            else -> "REGION: ${report.regionCode}  ${report.callingCode}"
+        }
+
         canvas.drawText(
-            "NUMBERING DATA: NOT LINKED",
+            profileLine,
             panel.left + 8f * density,
             panel.top + 41f * density,
-            warningText
+            if (report?.isValid == true) activeText else warningText
         )
     }
 
