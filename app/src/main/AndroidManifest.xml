@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Network Access: Maps, GeoJSON and NASA GIBS -->
+    <uses-permission
+        android:name="android.permission.INTERNET" />
+
+    <!-- Network Connectivity Status: Online / Offline -->
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Telephony Hardware: Optional -->
     <uses-feature
         android:name="android.hardware.telephony"
