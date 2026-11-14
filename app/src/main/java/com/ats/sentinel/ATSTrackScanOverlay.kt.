@@ -17,7 +17,6 @@ class ATSTrackScanOverlay(
     private val context: Context,
     private val windowManager: WindowManager
 ) {
-
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = android.os.Handler(
         android.os.Looper.getMainLooper()
@@ -47,9 +46,8 @@ class ATSTrackScanOverlay(
     private val density =
         context.resources.displayMetrics.density
 
-    private fun dp(value: Int): Int {
-        return (value * density).toInt()
-    }
+    private fun dp(value: Int): Int =
+        (value * density).toInt()
 
     fun sync(
         callActive: Boolean,
@@ -65,9 +63,7 @@ class ATSTrackScanOverlay(
             return
         }
 
-        if (!added) {
-            createWindow()
-        }
+        if (!added) createWindow()
 
         updatePosition(orbX, orbY)
         updateCallDetails(callerName, callerNumber, callState)
@@ -122,21 +118,13 @@ class ATSTrackScanOverlay(
         panel.addView(header)
 
         callerNameView = makeText(
-            "UNKNOWN CALLER",
-            12f,
-            Color.WHITE,
-            true
+            "UNKNOWN CALLER", 12f, Color.WHITE, true
         )
         numberView = makeText(
-            "NUMBER PENDING",
-            11f,
-            Color.rgb(130, 190, 220)
+            "NUMBER PENDING", 11f, Color.rgb(130, 190, 220)
         )
         statusView = makeText(
-            "SCANNING CALL",
-            10f,
-            Color.rgb(0, 205, 255),
-            true
+            "SCANNING CALL", 10f, Color.rgb(0, 205, 255), true
         )
 
         panel.addView(callerNameView)
@@ -146,6 +134,7 @@ class ATSTrackScanOverlay(
         val divider = View(context).apply {
             setBackgroundColor(Color.rgb(0, 95, 145))
         }
+
         panel.addView(
             divider,
             LinearLayout.LayoutParams(
@@ -174,14 +163,14 @@ class ATSTrackScanOverlay(
         confidenceView = addInfoRow(content, "CONFIDENCE", "—")
         sourceView = addInfoRow(content, "DATA SOURCE", "—")
 
-        val mapTitle = makeText(
-            "GLOBAL COUNTRY INTELLIGENCE",
-            10f,
-            Color.rgb(100, 220, 255),
-            true
+        content.addView(
+            makeText(
+                "GLOBAL COUNTRY INTELLIGENCE",
+                10f,
+                Color.rgb(100, 220, 255),
+                true
+            )
         )
-
-        content.addView(mapTitle)
 
         mapView = ATSWorldMapView(context)
 
@@ -195,13 +184,13 @@ class ATSTrackScanOverlay(
             }
         )
 
-        val mapNote = makeText(
-            "Highlighted country represents the numbering region, not the caller's live location.",
-            9f,
-            Color.rgb(145, 165, 185)
+        content.addView(
+            makeText(
+                "Highlighted country represents the numbering region, not the caller's live location.",
+                9f,
+                Color.rgb(145, 165, 185)
+            )
         )
-
-        content.addView(mapNote)
 
         scroll.addView(content)
 
@@ -214,12 +203,9 @@ class ATSTrackScanOverlay(
             )
         )
 
-        val width = dp(270)
-        val height = dp(390)
-
         val params = WindowManager.LayoutParams(
-            width,
-            height,
+            dp(270),
+            dp(390),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -233,11 +219,9 @@ class ATSTrackScanOverlay(
 
         try {
             windowManager.addView(panel, params)
-
             root = panel
             layoutParams = params
             added = true
-
         } catch (_: Exception) {
             root = null
             layoutParams = null
@@ -255,21 +239,12 @@ class ATSTrackScanOverlay(
             setPadding(0, dp(3), 0, dp(3))
         }
 
-        val labelView = makeText(
-            label,
-            8f,
-            Color.rgb(90, 160, 195),
-            true
+        row.addView(
+            makeText(label, 8f, Color.rgb(90, 160, 195), true)
         )
 
-        val valueView = makeText(
-            initialValue,
-            10f,
-            Color.WHITE
-        )
-
-        row.addView(labelView)
-        row.addView(valueView)
+        val value = makeText(initialValue, 10f, Color.WHITE)
+        row.addView(value)
 
         parent.addView(
             row,
@@ -279,7 +254,7 @@ class ATSTrackScanOverlay(
             )
         )
 
-        return valueView
+        return value
     }
 
     private fun makeText(
@@ -303,10 +278,7 @@ class ATSTrackScanOverlay(
         return GradientDrawable().apply {
             setColor(Color.rgb(5, 17, 34))
             cornerRadius = dp(15).toFloat()
-            setStroke(
-                dp(1),
-                Color.rgb(0, 145, 205)
-            )
+            setStroke(dp(1), Color.rgb(0, 145, 205))
         }
     }
 
@@ -319,12 +291,18 @@ class ATSTrackScanOverlay(
         numberView?.text = callerNumber
 
         statusView?.text = when (callState) {
-            Call.STATE_RINGING -> "INCOMING CALL • SCANNING"
-            Call.STATE_DIALING -> "OUTGOING CALL • SCANNING"
-            Call.STATE_CONNECTING -> "CONNECTING • SCANNING"
-            Call.STATE_ACTIVE -> "CALL ACTIVE • LIVE ANALYSIS"
-            Call.STATE_HOLDING -> "CALL ON HOLD"
-            else -> "CALL SESSION • SCANNING"
+            Call.STATE_RINGING ->
+                "INCOMING CALL • SCANNING"
+            Call.STATE_DIALING ->
+                "OUTGOING CALL • SCANNING"
+            Call.STATE_CONNECTING ->
+                "CONNECTING • SCANNING"
+            Call.STATE_ACTIVE ->
+                "CALL ACTIVE • LIVE ANALYSIS"
+            Call.STATE_HOLDING ->
+                "CALL ON HOLD"
+            else ->
+                "CALL SESSION • SCANNING"
         }
     }
 
@@ -349,7 +327,9 @@ class ATSTrackScanOverlay(
             )
 
             mainHandler.post {
-                if (number != lastNumber || !added) return@post
+                if (number != lastNumber || !added) {
+                    return@post
+                }
 
                 currentReport = result
                 renderReport(result)
@@ -361,19 +341,19 @@ class ATSTrackScanOverlay(
         countryView?.text = report.countryName
         codeView?.text = report.callingCode
         typeView?.text = report.numberType
+
         carrierView?.text =
             report.originalCarrier + "\n" + report.carrierNotice
 
         riskView?.text = report.riskAssessment
         confidenceView?.text = "${report.confidence}%"
+
         sourceView?.text =
             report.metadataSource + "\n" +
             report.metadataVersion + "\n" +
             "Country reference: ${report.countrySource}"
 
-        mapView?.setHighlightedCountry(
-            report.regionCode
-        )
+        mapView?.setHighlightedCountry(report.regionCode)
     }
 
     private fun updatePosition(
@@ -392,18 +372,14 @@ class ATSTrackScanOverlay(
         val panelHeight = dp(390)
         val orbSize = dp(72)
 
-        val rightPosition =
-            orbX + orbSize + dp(8)
+        val rightPosition = orbX + orbSize + dp(8)
 
-        val x = if (
-            rightPosition + panelWidth <= screenWidth
-        ) {
+        val x = if (rightPosition + panelWidth <= screenWidth) {
             rightPosition
         } else {
             (orbX - panelWidth - dp(8)).coerceAtLeast(0)
         }
 
-        // Keep the popup away from the lower call-control area.
         val safeBottom = dp(220)
         val maxY = maxOf(
             0,
@@ -414,11 +390,13 @@ class ATSTrackScanOverlay(
 
         if (x == lastX && y == lastY) return
 
+        val panel = root ?: return
+
         params.x = x
         params.y = y
 
         try {
-            windowManager.updateViewLayout(root, params)
+            windowManager.updateViewLayout(panel, params)
             lastX = x
             lastY = y
         } catch (_: Exception) {
@@ -439,6 +417,11 @@ class ATSTrackScanOverlay(
         mapView = null
         layoutParams = null
         added = false
+
+        // Allow the same number to be analyzed on the next call.
+        lastNumber = ""
+        currentReport = null
+
         lastX = Int.MIN_VALUE
         lastY = Int.MIN_VALUE
     }
