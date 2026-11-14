@@ -47,6 +47,11 @@ class TacticalOrbService : Service() {
     private var orbContainer: FrameLayout? = null
     private var holoView: HoloGridView? = null
     private var satelliteView: SatelliteIconView? = null
+
+    // ATS TRACK SCAN integration
+    private var trackScanOverlay: ATSTrackScanOverlay? = null
+    private var orbLayoutParams: WindowManager.LayoutParams? = null
+
     private var added = false
 
     private val handler = Handler(Looper.getMainLooper())
@@ -73,23 +78,50 @@ class TacticalOrbService : Service() {
         ).show()
     }
 
-    // Synchronize satellite visibility with the call session.
+    // =========================================
+    // ATS TRACK SCAN SESSION SYNCHRONIZATION
+    // =========================================
+
     private val trackScanSyncRunnable = object : Runnable {
+
         override fun run() {
+
             if (!added) return
 
-            val callActive = ATSCallSession.isTrackScanCallActive
+            val callActive =
+                ATSCallSession.isTrackScanCallActive
+
+            val scanVisible =
+                ATSCallSession.isTrackScanVisible
 
             satelliteView?.visibility =
                 if (callActive) View.VISIBLE else View.GONE
+
+            val position = orbLayoutParams
+
+            trackScanOverlay?.sync(
+                callActive = callActive,
+                visible = scanVisible,
+                callerName = ATSCallSession.callerName,
+                callerNumber = ATSCallSession.callerNumber,
+                callState = ATSCallSession.callState,
+                orbX = position?.x ?: dp(20),
+                orbY = position?.y ?: dp(130)
+            )
 
             handler.postDelayed(this, 250L)
         }
     }
 
     private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
+        return (
+            value * resources.displayMetrics.density
+        ).toInt()
     }
+
+    // =========================================
+    // SERVICE LIFECYCLE
+    // =========================================
 
     override fun onCreate() {
         super.onCreate()
@@ -121,9 +153,9 @@ class TacticalOrbService : Service() {
         return START_STICKY
     }
 
-    // -----------------------------------------
+    // =========================================
     // NOTIFICATION
-    // -----------------------------------------
+    // =========================================
 
     private fun createNotificationChannel() {
 
@@ -156,9 +188,9 @@ class TacticalOrbService : Service() {
             .build()
     }
 
-    // -----------------------------------------
+    // =========================================
     // ATS AI FLOATING ORB
-    // -----------------------------------------
+    // =========================================
 
     private fun showOrb() {
 
@@ -179,14 +211,15 @@ class TacticalOrbService : Service() {
             )
         )
 
-        // Separate satellite touch target.
-        // It does not replace or cover the main orb touch listener.
+        // Independent satellite touch target
         val satellite = SatelliteIconView(this).apply {
+
             visibility = View.GONE
             isClickable = true
             isFocusable = false
 
             setOnClickListener {
+
                 if (ATSCallSession.isTrackScanCallActive) {
                     ATSCallSession.toggleTrackScan()
                 }
@@ -223,9 +256,9 @@ class TacticalOrbService : Service() {
             y = dp(130)
         }
 
-        // -------------------------------------
+        // =====================================
         // MAIN ORB TOUCH, DRAG AND LONG PRESS
-        // -------------------------------------
+        // =====================================
 
         val touchListener =
             View.OnTouchListener { _, event ->
@@ -264,6 +297,7 @@ class TacticalOrbService : Service() {
                             abs(deltaX) > touchSlop ||
                             abs(deltaY) > touchSlop
                         ) {
+
                             isDragging = true
 
                             handler.removeCallbacks(
@@ -273,14 +307,19 @@ class TacticalOrbService : Service() {
 
                         if (isDragging) {
 
-                            params.x = dragX + deltaX.toInt()
-                            params.y = dragY + deltaY.toInt()
+                            params.x =
+                                dragX + deltaX.toInt()
+
+                            params.y =
+                                dragY + deltaY.toInt()
 
                             try {
+
                                 windowManager.updateViewLayout(
                                     container,
                                     params
                                 )
+
                             } catch (_: Exception) {
                             }
                         }
@@ -320,8 +359,8 @@ class TacticalOrbService : Service() {
                 }
             }
 
-        // Only the main holographic surface receives the old orb listener.
-        // The satellite child handles its own independent clicks.
+        // Main holographic surface retains its original listener.
+        // Satellite has its own independent click listener.
         holo.setOnTouchListener(touchListener)
 
         try {
@@ -332,10 +371,23 @@ class TacticalOrbService : Service() {
             )
 
             orbContainer = container
+            orbLayoutParams = params
+
+            // Create ATS TRACK SCAN overlay controller.
+            trackScanOverlay = ATSTrackScanOverlay(
+                context = this,
+                windowManager = windowManager
+            )
+
             added = true
 
-            handler.removeCallbacks(trackScanSyncRunnable)
-            handler.post(trackScanSyncRunnable)
+            handler.removeCallbacks(
+                trackScanSyncRunnable
+            )
+
+            handler.post(
+                trackScanSyncRunnable
+            )
 
         } catch (_: Exception) {
 
@@ -343,9 +395,9 @@ class TacticalOrbService : Service() {
         }
     }
 
-    // -----------------------------------------
+    // =========================================
     // OPEN ATS APPLICATION
-    // -----------------------------------------
+    // =========================================
 
     private fun openATS() {
 
@@ -355,9 +407,10 @@ class TacticalOrbService : Service() {
                 this,
                 MainActivity::class.java
             ).apply {
+
                 flags =
                     Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
 
             startActivity(intent)
@@ -372,34 +425,47 @@ class TacticalOrbService : Service() {
         }
     }
 
-    // -----------------------------------------
+    // =========================================
     // CLEANUP
-    // -----------------------------------------
+    // =========================================
 
     override fun onDestroy() {
 
         handler.removeCallbacksAndMessages(null)
 
+        // Destroy ATS TRACK SCAN overlay first.
+        trackScanOverlay?.destroy()
+        trackScanOverlay = null
+
+        orbLayoutParams = null
+
         holoView?.stopAnimation()
         satelliteView?.stopAnimation()
 
         if (added) {
+
             try {
+
                 orbContainer?.let {
                     windowManager.removeView(it)
                 }
+
             } catch (_: Exception) {
             }
         }
 
         added = false
+
         holoView = null
         satelliteView = null
         orbContainer = null
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+
             stopForeground(STOP_FOREGROUND_REMOVE)
+
         } else {
+
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
@@ -419,10 +485,14 @@ class TacticalOrbService : Service() {
         context: Context
     ) : View(context) {
 
-        private val blue = Color.rgb(0, 190, 255)
-        private val brightBlue = Color.rgb(125, 235, 255)
+        private val blue =
+            Color.rgb(0, 190, 255)
 
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val brightBlue =
+            Color.rgb(125, 235, 255)
+
+        private val paint =
+            Paint(Paint.ANTI_ALIAS_FLAG)
 
         private var pulse = 0f
 
@@ -435,6 +505,7 @@ class TacticalOrbService : Service() {
                 interpolator = LinearInterpolator()
 
                 addUpdateListener {
+
                     pulse = it.animatedValue as Float
                     invalidate()
                 }
@@ -476,7 +547,8 @@ class TacticalOrbService : Service() {
                 paint
             )
 
-            paint.alpha = (35 + (1f - pulse) * 100).toInt()
+            paint.alpha =
+                (35 + (1f - pulse) * 100).toInt()
 
             canvas.drawCircle(
                 cx,
@@ -571,8 +643,11 @@ class TacticalOrbService : Service() {
         context: Context
     ) : View(context) {
 
-        private val blue = Color.rgb(0, 190, 255)
-        private val brightBlue = Color.rgb(110, 230, 255)
+        private val blue =
+            Color.rgb(0, 190, 255)
+
+        private val brightBlue =
+            Color.rgb(110, 230, 255)
 
         private val paint =
             Paint(Paint.ANTI_ALIAS_FLAG)
