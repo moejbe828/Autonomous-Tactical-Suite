@@ -1,4 +1,3 @@
-
 package com.ats.sentinel
 
 import android.content.Context
@@ -55,6 +54,9 @@ class ATSTrackScanOverlay(
     private var callerNameView: TextView? = null
     private var numberView: TextView? = null
     private var statusView: TextView? = null
+
+    private var validityView: TextView? = null
+    private var assessmentView: TextView? = null
 
     private var countryView: TextView? = null
     private var codeView: TextView? = null
@@ -129,9 +131,9 @@ class ATSTrackScanOverlay(
             orientation = LinearLayout.VERTICAL
 
             setPadding(
-                dp(12),
+                dp(13),
                 dp(10),
-                dp(12),
+                dp(13),
                 dp(10)
             )
 
@@ -165,7 +167,6 @@ class ATSTrackScanOverlay(
             textSize = 26f
 
             setTextColor(Color.WHITE)
-
             gravity = Gravity.CENTER
 
             setPadding(
@@ -219,7 +220,7 @@ class ATSTrackScanOverlay(
 
         statusView = makeText(
             "SCANNING CALL",
-            10f,
+            9f,
             Color.rgb(0, 205, 255),
             true
         )
@@ -228,30 +229,23 @@ class ATSTrackScanOverlay(
         panel.addView(numberView)
         panel.addView(statusView)
 
-        // DIVIDER
-
-        val divider = View(context).apply {
-            setBackgroundColor(
-                Color.rgb(0, 95, 145)
-            )
-        }
+        // HEADER DIVIDER
 
         panel.addView(
-            divider,
+            createDivider(),
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(1)
             ).apply {
-                topMargin = dp(7)
-                bottomMargin = dp(6)
+                topMargin = dp(6)
+                bottomMargin = dp(5)
             }
         )
 
-        // SCROLLABLE CONTENT
+        // SCROLLABLE INFORMATION
 
         val scroll = ScrollView(context).apply {
             isFillViewport = false
-
             overScrollMode =
                 View.OVER_SCROLL_IF_CONTENT_SCROLLS
         }
@@ -260,17 +254,39 @@ class ATSTrackScanOverlay(
             orientation = LinearLayout.VERTICAL
         }
 
+        // NUMBER VALIDITY
+
+        validityView = addInfoRow(
+            content,
+            "NUMBER FORMAT / VALIDITY",
+            "WAITING FOR ANALYSIS"
+        )
+
+        // NUMBER-LEVEL ASSESSMENT
+
+        assessmentView = addInfoRow(
+            content,
+            "NUMBER-LEVEL ASSESSMENT",
+            "NOT YET ASSESSED"
+        )
+
+        // COUNTRY
+
         countryView = addInfoRow(
             content,
-            "COUNTRY",
+            "NUMBERING COUNTRY / REGION",
             "ANALYZING"
         )
 
+        // CALLING CODE
+
         codeView = addInfoRow(
             content,
-            "CALLING CODE",
+            "INTERNATIONAL CALLING CODE",
             "—"
         )
+
+        // NUMBER TYPE
 
         typeView = addInfoRow(
             content,
@@ -278,11 +294,15 @@ class ATSTrackScanOverlay(
             "—"
         )
 
+        // ORIGINAL CARRIER
+
         carrierView = addInfoRow(
             content,
-            "ORIGINAL CARRIER",
+            "ORIGINAL CARRIER / PREFIX",
             "—"
         )
+
+        // RISK
 
         riskView = addInfoRow(
             content,
@@ -290,19 +310,23 @@ class ATSTrackScanOverlay(
             "—"
         )
 
+        // CONFIDENCE
+
         confidenceView = addInfoRow(
             content,
-            "CONFIDENCE",
+            "ANALYSIS CONFIDENCE",
             "—"
         )
+
+        // SOURCE
 
         sourceView = addInfoRow(
             content,
-            "DATA SOURCE",
+            "METADATA SOURCE",
             "—"
         )
 
-        // GLOBAL DATABASE STATUS
+        // GLOBAL NUMBERING DATABASE
 
         numberingDatabaseView = addInfoRow(
             content,
@@ -310,26 +334,35 @@ class ATSTrackScanOverlay(
             "LOADING LOCAL METADATA"
         )
 
+        // OPERATOR DATABASE
+
         operatorDatabaseView = addInfoRow(
             content,
             "OPERATOR / MCC-MNC DATABASE",
-            "VERIFIED RECORDS: CHECKING"
+            "CHECKING VERIFIED RECORDS"
         )
 
         updateDatabaseStatus()
 
-        // MAP HEADER
+        // MAP SECTION
 
-        content.addView(
-            makeText(
-                "GLOBAL COUNTRY INTELLIGENCE",
-                10f,
-                Color.rgb(100, 220, 255),
-                true
-            )
+        val mapHeader = makeText(
+            "NUMBERING REGION MAP",
+            10f,
+            Color.rgb(100, 220, 255),
+            true
         )
 
-        // ATS WORLD MAP
+        mapHeader.setPadding(
+            0,
+            dp(7),
+            0,
+            dp(4)
+        )
+
+        content.addView(mapHeader)
+
+        // CLEAN WORLD MAP
 
         mapView = ATSWorldMapView(context)
 
@@ -337,18 +370,19 @@ class ATSTrackScanOverlay(
             mapView,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(138)
+                dp(155)
             ).apply {
-                topMargin = dp(5)
+                topMargin = dp(3)
+                bottomMargin = dp(5)
             }
         )
 
-        // LOCATION DISCLAIMER
+        // MAP DISCLAIMER
 
         content.addView(
             makeText(
-                "Highlighted country represents the numbering region, not the caller's live location.",
-                9f,
+                "Map marker indicates the phone-numbering region only. It does not identify the caller's live location.",
+                8f,
                 Color.rgb(145, 165, 185)
             )
         )
@@ -367,8 +401,8 @@ class ATSTrackScanOverlay(
         // WINDOW PARAMETERS
 
         val params = WindowManager.LayoutParams(
-            dp(270),
-            dp(390),
+            dp(PANEL_WIDTH_DP),
+            dp(PANEL_HEIGHT_DP),
 
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
 
@@ -380,7 +414,7 @@ class ATSTrackScanOverlay(
         ).apply {
             gravity = Gravity.TOP or Gravity.START
 
-            x = dp(95)
+            x = dp(85)
             y = dp(30)
         }
 
@@ -404,6 +438,18 @@ class ATSTrackScanOverlay(
             mapView = null
 
             added = false
+        }
+    }
+
+    // ---------------------------------------------------------
+    // DIVIDER
+    // ---------------------------------------------------------
+
+    private fun createDivider(): View {
+        return View(context).apply {
+            setBackgroundColor(
+                Color.rgb(0, 95, 145)
+            )
         }
     }
 
@@ -484,6 +530,7 @@ class ATSTrackScanOverlay(
             )
 
             isSingleLine = false
+            includeFontPadding = true
         }
     }
 
@@ -492,7 +539,6 @@ class ATSTrackScanOverlay(
     // ---------------------------------------------------------
 
     private fun roundedBackground(): GradientDrawable {
-
         return GradientDrawable().apply {
             setColor(
                 Color.rgb(5, 17, 34)
@@ -513,11 +559,10 @@ class ATSTrackScanOverlay(
     // ---------------------------------------------------------
 
     private fun updateDatabaseStatus() {
-
         val info = try {
             ATSGlobalTelecomDatabase.getDatabaseInfo()
         } catch (_: Exception) {
-            emptyMap()
+            emptyMap<String, String>()
         }
 
         val countryCount =
@@ -561,7 +606,6 @@ class ATSTrackScanOverlay(
         callerNumber: String,
         callState: Int
     ) {
-
         callerNameView?.text =
             callerName
                 .takeIf { it.isNotBlank() }
@@ -573,7 +617,6 @@ class ATSTrackScanOverlay(
                 ?: "NUMBER UNAVAILABLE"
 
         statusView?.text = when (callState) {
-
             Call.STATE_RINGING ->
                 "INCOMING CALL • SCANNING"
 
@@ -607,6 +650,8 @@ class ATSTrackScanOverlay(
     private fun resetAnalysisDisplay(
         status: String
     ) {
+        validityView?.text = status
+        assessmentView?.text = "NOT YET ASSESSED"
 
         countryView?.text = status
         codeView?.text = "—"
@@ -626,7 +671,6 @@ class ATSTrackScanOverlay(
     // ---------------------------------------------------------
 
     private fun analyzeIfNeeded(number: String) {
-
         if (number == lastNumber) return
 
         lastNumber = number
@@ -658,25 +702,18 @@ class ATSTrackScanOverlay(
             "ATS ENGINE • ANALYZING"
 
         try {
-
             worker.execute {
-
                 val result = try {
-
                     ATSTrackScanEngine.analyze(
                         context.applicationContext,
                         number
                     )
-
-                } catch (exception: Exception) {
-
+                } catch (_: Exception) {
                     null
                 }
 
                 mainHandler.post {
-
                     if (destroyed) return@post
-
                     if (!added) return@post
 
                     if (generation != scanGeneration) {
@@ -688,7 +725,6 @@ class ATSTrackScanOverlay(
                     }
 
                     if (result == null) {
-
                         currentReport = null
 
                         resetAnalysisDisplay(
@@ -702,13 +738,10 @@ class ATSTrackScanOverlay(
                     }
 
                     currentReport = result
-
                     renderReport(result)
                 }
             }
-
         } catch (_: RejectedExecutionException) {
-
             resetAnalysisDisplay(
                 "ENGINE UNAVAILABLE"
             )
@@ -719,12 +752,49 @@ class ATSTrackScanOverlay(
     }
 
     // ---------------------------------------------------------
+    // NUMBER VALIDITY AND NUMBER-LEVEL ASSESSMENT
+    // ---------------------------------------------------------
+
+    private fun renderNumberAssessment(
+        report: ATSTrackScanReport
+    ) {
+        validityView?.text = when {
+            report.isValid ->
+                "VALID NUMBER FORMAT"
+
+            report.isPossible ->
+                "POSSIBLE FORMAT • NOT FULLY VALIDATED"
+
+            else ->
+                "INVALID OR UNRECOGNIZED FORMAT"
+        }
+
+        assessmentView?.text = when {
+            !report.isPossible ->
+                "FORMAT CHECK FAILED • REVIEW REQUIRED"
+
+            !report.isValid ->
+                "POSSIBLE NUMBER • VALIDITY NOT CONFIRMED"
+
+            report.numberType.contains(
+                "PREMIUM",
+                ignoreCase = true
+            ) ->
+                "VALID FORMAT • PREMIUM-RATE TYPE"
+
+            else ->
+                "VALID FORMAT • IDENTITY AND SAFETY UNVERIFIED"
+        }
+    }
+
+    // ---------------------------------------------------------
     // RENDER ANALYSIS REPORT
     // ---------------------------------------------------------
 
     private fun renderReport(
         report: ATSTrackScanReport
     ) {
+        renderNumberAssessment(report)
 
         countryView?.text =
             report.countryName
@@ -764,9 +834,8 @@ class ATSTrackScanOverlay(
         statusView?.text =
             "ATS ENGINE • ${report.analysisStatus}"
 
-        // Send the complete report to the map.
-        // The map highlights the numbering region,
-        // not the physical location of the caller.
+        // The map identifies the numbering region only.
+        // It does not locate the caller physically.
 
         mapView?.setTrackScanReport(report)
     }
@@ -779,7 +848,6 @@ class ATSTrackScanOverlay(
         orbX: Int,
         orbY: Int
     ) {
-
         val params = layoutParams ?: return
         val panel = root ?: return
 
@@ -792,12 +860,11 @@ class ATSTrackScanOverlay(
         val screenHeight =
             displayMetrics.heightPixels
 
-        val panelWidth = dp(270)
-        val panelHeight = dp(390)
+        val panelWidth = dp(PANEL_WIDTH_DP)
+        val panelHeight = dp(PANEL_HEIGHT_DP)
         val orbSize = dp(72)
 
-        // Prefer placing the scan panel to the right
-        // of the floating tactical orb.
+        // Prefer the right side of the floating orb.
 
         val rightPosition =
             orbX + orbSize + dp(8)
@@ -805,34 +872,29 @@ class ATSTrackScanOverlay(
         val x = if (
             rightPosition + panelWidth <= screenWidth
         ) {
-
             rightPosition
-
         } else {
-
-            (orbX - panelWidth - dp(8))
-                .coerceIn(
-                    0,
-                    maxOf(0, screenWidth - panelWidth)
-                )
+            (orbX - panelWidth - dp(8)).coerceIn(
+                0,
+                maxOf(0, screenWidth - panelWidth)
+            )
         }
 
-        // Keep the bottom call controls visible.
+        // Keep space for the phone call controls.
 
-        val safeBottom = dp(220)
+        val safeBottom = dp(175)
 
         val maxY = maxOf(
             0,
             screenHeight - panelHeight - safeBottom
         )
 
-        val y = (orbY - dp(55))
-            .coerceIn(0, maxY)
+        val y = (orbY - dp(55)).coerceIn(
+            0,
+            maxY
+        )
 
-        if (
-            x == lastX &&
-            y == lastY
-        ) {
+        if (x == lastX && y == lastY) {
             return
         }
 
@@ -840,7 +902,6 @@ class ATSTrackScanOverlay(
         params.y = y
 
         try {
-
             windowManager.updateViewLayout(
                 panel,
                 params
@@ -848,7 +909,6 @@ class ATSTrackScanOverlay(
 
             lastX = x
             lastY = y
-
         } catch (_: Exception) {
             // Window may already have been removed.
         }
@@ -859,8 +919,7 @@ class ATSTrackScanOverlay(
     // ---------------------------------------------------------
 
     private fun hide() {
-
-        // Invalidate all pending analysis callbacks.
+        // Invalidate pending analysis callbacks.
 
         scanGeneration++
 
@@ -868,13 +927,10 @@ class ATSTrackScanOverlay(
         currentReport = null
 
         if (added) {
-
             try {
-
                 root?.let {
                     windowManager.removeView(it)
                 }
-
             } catch (_: Exception) {
                 // Window already removed.
             }
@@ -893,6 +949,9 @@ class ATSTrackScanOverlay(
         numberView = null
         statusView = null
 
+        validityView = null
+        assessmentView = null
+
         countryView = null
         codeView = null
         typeView = null
@@ -910,23 +969,17 @@ class ATSTrackScanOverlay(
     // ---------------------------------------------------------
 
     fun destroy() {
-
         if (destroyed) return
 
         destroyed = true
-
         scanGeneration++
 
-        // Remove the window on the main thread.
         if (
             android.os.Looper.myLooper() ==
             android.os.Looper.getMainLooper()
         ) {
-
             hide()
-
         } else {
-
             mainHandler.post {
                 hide()
             }
@@ -935,5 +988,10 @@ class ATSTrackScanOverlay(
         worker.shutdownNow()
 
         mainHandler.removeCallbacksAndMessages(null)
+    }
+
+    companion object {
+        private const val PANEL_WIDTH_DP = 320
+        private const val PANEL_HEIGHT_DP = 470
     }
 }
