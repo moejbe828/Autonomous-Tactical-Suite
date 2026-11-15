@@ -7,23 +7,19 @@ import java.util.Locale
 /**
  * ATS GLOBAL TELECOM DATABASE
  *
- * Provides locally available international numbering metadata.
+ * Country numbering metadata is provided by libphonenumber.
+ * Operator-prefix records are maintained independently by
+ * ATSGlobalOperatorPrefixDatabase.
  *
- * IMPORTANT:
- * - Country calling codes come from libphonenumber metadata.
- * - This is not a complete live operator-allocation database.
- * - MCC/MNC values are never guessed or fabricated.
- * - Original carrier prefix data must not be treated as current carrier data.
+ * This database does not claim to identify a live caller location
+ * or the subscriber's current mobile operator.
  */
 object ATSGlobalTelecomDatabase {
 
-    private const val DATABASE_VERSION = "1.0.0"
+    private const val DATABASE_VERSION = "1.1.0"
 
     private const val NUMBERING_SOURCE =
         "Google libphonenumber numbering metadata"
-
-    private const val OPERATOR_SOURCE =
-        "No verified public operator allocation record loaded"
 
     private val phoneUtil: PhoneNumberUtil by lazy {
         PhoneNumberUtil.getInstance()
@@ -68,20 +64,8 @@ object ATSGlobalTelecomDatabase {
     )
 
     /**
-     * Operator records must be added only after verification
-     * against an authoritative source.
-     *
-     * Empty by default intentionally.
-     */
-    private val verifiedOperators =
-        emptyList<OperatorRecord>()
-
-    /**
-     * Returns all geographic regions supported by the
-     * installed libphonenumber numbering metadata.
-     *
-     * This is a library-supported region list, not a claim
-     * that every sovereign state has a separate calling code.
+     * All geographic regions supported by the installed
+     * libphonenumber metadata.
      */
     fun getAllCountries(): List<CountryRecord> {
 
@@ -94,9 +78,6 @@ object ATSGlobalTelecomDatabase {
             .toList()
     }
 
-    /**
-     * Looks up a region by ISO region code.
-     */
     fun getCountry(regionCode: String): CountryRecord? {
 
         val normalized = regionCode
@@ -115,8 +96,6 @@ object ATSGlobalTelecomDatabase {
     }
 
     /**
-     * Finds all regions using a given international calling code.
-     *
      * A calling code may be shared by multiple regions.
      */
     fun getCountriesByCallingCode(
@@ -127,7 +106,8 @@ object ATSGlobalTelecomDatabase {
             .trim()
             .removePrefix("+")
 
-        if (normalized.isBlank() ||
+        if (
+            normalized.isBlank() ||
             !normalized.all { it.isDigit() }
         ) {
             return emptyList()
@@ -139,10 +119,12 @@ object ATSGlobalTelecomDatabase {
     }
 
     /**
-     * Returns a country profile and its verified operator records.
+     * Returns the country profile and currently loaded
+     * operator allocation records.
      *
-     * When no verified operator record exists, the result
-     * explicitly reports DATA_UNAVAILABLE.
+     * PARTIAL is used when records exist because the presence
+     * of some operators does not prove the entire national
+     * operator allocation list is complete.
      */
     fun getCountryProfile(
         regionCode: String
@@ -155,117 +137,132 @@ object ATSGlobalTelecomDatabase {
                 country = null,
                 operators = emptyList(),
                 operatorStatus = RecordStatus.DATA_UNAVAILABLE,
-                operatorSource = OPERATOR_SOURCE,
+                operatorSource =
+                    ATSGlobalOperatorPrefixDatabase.DATABASE_SOURCE,
                 databaseVersion = DATABASE_VERSION
             )
         }
 
-        val operators = verifiedOperators.filter {
-            it.countryRegion.equals(
-                country.regionCode,
-                ignoreCase = true
+        val operators =
+            ATSGlobalOperatorPrefixDatabase.getOperatorsForCountry(
+                country.regionCode
             )
-        }
 
         val status = when {
             operators.isEmpty() ->
                 RecordStatus.DATA_UNAVAILABLE
 
-            operators.all {
-                it.status == RecordStatus.VERIFIED
-            } ->
-                RecordStatus.VERIFIED
-
             else ->
                 RecordStatus.PARTIAL
         }
+
+        val sources = operators
+            .map { it.source }
+            .distinct()
+            .joinToString("; ")
+            .ifBlank {
+                "No verified operator allocation record loaded"
+            }
 
         return CountryProfile(
             country = country,
             operators = operators,
             operatorStatus = status,
-            operatorSource = if (operators.isEmpty()) {
-                OPERATOR_SOURCE
-            } else {
-                operators.joinToString {
-                    it.source
-                }
-            },
+            operatorSource = sources,
             databaseVersion = DATABASE_VERSION
         )
     }
 
     /**
-     * Finds a verified operator record by exact region and
-     * an explicitly supplied national number prefix.
+     * Finds the originally allocated operator prefix.
      *
-     * This does not determine the current carrier after
-     * mobile number portability.
+     * This is NOT a live current-carrier lookup.
      */
     fun findOperatorByPrefix(
         regionCode: String,
         nationalNumber: String
     ): OperatorRecord? {
 
-        val region = regionCode
-            .trim()
-            .uppercase(Locale.ROOT)
-
-        val number = nationalNumber
-            .filter { it.isDigit() }
-
-        if (region.isBlank() || number.isBlank()) {
-            return null
-        }
-
-        return verifiedOperators
-            .asSequence()
-            .filter {
-                it.countryRegion.equals(
-                    region,
-                    ignoreCase = true
-                )
-            }
-            .filter {
-                it.status == RecordStatus.VERIFIED
-            }
-            .filter { record ->
-                record.numberPrefixes.any { prefix ->
-                    number.startsWith(
-                        prefix.filter { it.isDigit() }
-                    )
-                }
-            }
-            .maxByOrNull { record ->
-                record.numberPrefixes.maxOfOrNull {
-                    it.length
-                } ?: 0
-            }
+        return ATSGlobalOperatorPrefixDatabase.findByPrefix(
+            regionCode = regionCode,
+            nationalNumber = nationalNumber
+        )
     }
 
-    /**
-     * Returns the number of regions currently available
-     * in the installed numbering metadata.
-     */
+    fun getAllOperators(): List<OperatorRecord> {
+        return ATSGlobalOperatorPrefixDatabase.getAllOperators()
+    }
+
     fun getCountryCount(): Int {
         return phoneUtil.supportedRegions.size
     }
 
+    fun getOperatorCount(): Int {
+        return ATSGlobalOperatorPrefixDatabase.getOperatorCount()
+    }
+
     /**
-     * Returns database metadata for the UI and audit log.
+     * Metadata displayed by ATS TRACK SCAN.
      */
     fun getDatabaseInfo(): Map<String, String> {
 
+        val operatorCount = getOperatorCount()
+
+        val countryCountWithOperators =
+            ATSGlobalOperatorPrefixDatabase
+                .getCountryCountWithOperatorData()
+
+        val operatorStatus = when {
+            operatorCount == 0 ->
+                "NO VERIFIED OPERATOR DATA"
+
+            else ->
+                "PARTIAL — VERIFIED RECORDS ONLY"
+        }
+
+        val mccMncStatus = when {
+            ATSGlobalOperatorPrefixDatabase
+                .getAllOperators()
+                .any { it.mcc != null && it.mnc != null } ->
+                "PARTIAL — SOURCED MCC/MNC RECORDS"
+
+            else ->
+                "NOT LOADED"
+        }
+
         return mapOf(
-            "DATABASE_NAME" to "ATS GLOBAL TELECOM DATABASE",
-            "DATABASE_VERSION" to DATABASE_VERSION,
-            "COUNTRY_SOURCE" to NUMBERING_SOURCE,
-            "COUNTRY_METADATA_VERSION" to "libphonenumber 9.0.43",
-            "OPERATOR_SOURCE" to OPERATOR_SOURCE,
-            "COUNTRY_RECORD_COUNT" to getCountryCount().toString(),
-            "OPERATOR_RECORD_COUNT" to verifiedOperators.size.toString(),
-            "MCC_MNC_STATUS" to "NOT LOADED — NO VERIFIED DATA",
-            "OFFLINE_STATUS" to "LOCAL NUMBERING METADATA AVAILABLE"
+            "DATABASE_NAME" to
+                "ATS GLOBAL TELECOM DATABASE",
+
+            "DATABASE_VERSION" to
+                DATABASE_VERSION,
+
+            "COUNTRY_SOURCE" to
+                NUMBERING_SOURCE,
+
+            "COUNTRY_METADATA_VERSION" to
+                "libphonenumber 9.0.43",
+
+            "OPERATOR_SOURCE" to
+                ATSGlobalOperatorPrefixDatabase.DATABASE_SOURCE,
+
+            "COUNTRY_RECORD_COUNT" to
+                getCountryCount().toString(),
+
+            "OPERATOR_RECORD_COUNT" to
+                operatorCount.toString(),
+
+            "OPERATOR_COUNTRY_COUNT" to
+                countryCountWithOperators.toString(),
+
+            "OPERATOR_DATABASE_STATUS" to
+                operatorStatus,
+
+            "MCC_MNC_STATUS" to
+                mccMncStatus,
+
+            "OFFLINE_STATUS" to
+                "LOCAL NUMBERING AND OPERATOR DATA AVAILABLE"
         )
     }
 
@@ -273,8 +270,7 @@ object ATSGlobalTelecomDatabase {
         region: String
     ): CountryRecord? {
 
-        val normalized = region
-            .uppercase(Locale.ROOT)
+        val normalized = region.uppercase(Locale.ROOT)
 
         val callingCode =
             phoneUtil.getCountryCodeForRegion(normalized)
